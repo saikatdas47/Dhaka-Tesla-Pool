@@ -1,0 +1,19 @@
+{
+  "name": "dhakariderbackend",
+  "version": "1.0.0",
+  "description": "Ride sharing app",
+  "license": "ISC",
+  "author": "Saikat Das",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "nodemon": "^3.1.14"
+  }
+}
