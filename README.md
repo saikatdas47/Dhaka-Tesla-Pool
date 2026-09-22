@@ -1,16 +1,34 @@
 # Dhaka Tesla Pool
 
-The repository currently contains a minimal Express API connected to MongoDB Atlas. The frontend directory is empty, so Compose starts only the API. Add a frontend service when the frontend app exists.
+Current scope: passenger registration, login, a protected home page, and logout. Ride booking and driver features are not implemented yet. The React frontend and Express API are served from one Docker container; MongoDB Atlas stores passengers.
 
-## Run with Docker
+## Docker setup
 
-1. Install Docker Desktop and start it.
-2. Copy `backend/.env.example` to `backend/.env`.
-3. Replace `MONGODB_URI` in `backend/.env` with your MongoDB Atlas driver connection string. Set the database name to `dhaka_tesla_pool` or your preferred name.
-4. In Atlas, create a database user and allow your current network address under Network Access. URL-encode special characters in the database password.
-5. From the repository root, run `docker compose up --build`.
-6. Check `http://localhost:4000/health`. A successful response is `{"status":"ok","database":"connected"}`.
+1. Start Docker Desktop.
+2. If `backend/.env` does not exist, copy `backend/.env.example` to `backend/.env`.
+3. In `backend/.env`, set `MONGODB_URI` to your Atlas connection string. The app selects the `dhaka_tesla_pool` database by default; set `MONGODB_DB_NAME` if you prefer another name. Create an Atlas database user and allow your current network address in Atlas Network Access. URL-encode special characters in the password.
+4. Set `JWT_SECRET` to a unique random value of at least 32 bytes. You can generate one with `openssl rand -hex 32`.
+5. From the project root, run `docker compose up --build`.
+6. Open `http://localhost:4000`. Register, then use the home page. Log out and sign in with the same account.
 
-The Atlas URI stays in `backend/.env`, which Git ignores and Docker excludes from the image. Compose supplies it to the running container. The API waits for an Atlas connection before it opens port 4000; a failed connection exits with a readable error in `docker compose logs api`.
+`backend/.env` is ignored by Git and excluded from the Docker image. Docker Compose gives these values to the running container. The API starts only after it connects to MongoDB Atlas.
 
-Stop with `docker compose down`. No database container or local database volume is used because the database is hosted on Atlas.
+Useful commands from the project root:
+
+```bash
+docker compose up --build
+docker compose logs -f api
+docker compose down
+```
+
+After changing code, run `docker compose up --build` again to rebuild the image. The current Compose setup does not hot reload. The health endpoint is `http://localhost:4000/health`.
+
+## Files and request flow
+
+- `frontend/src/App.jsx`: registration form, login form, home page, and session check.
+- `backend/routes/passengerRoutes.js`: passenger authentication route definitions.
+- `backend/controllers/passengerController.js`: registration, login, current passenger, and logout logic.
+- `backend/models/Passenger.js`: MongoDB passenger model. Passwords are stored as bcrypt hashes.
+- `backend/index.js`: Express app, API routes, frontend static files, and Atlas startup.
+
+The browser sends registration or login details to `/api/passengers/*`. The API verifies the request, stores or finds the passenger in Atlas, and sets a signed HTTP-only cookie. The browser then calls `/api/passengers/me` to restore the session after a refresh. The home page is available only while signed in.
