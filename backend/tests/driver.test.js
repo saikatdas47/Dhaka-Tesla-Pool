@@ -19,6 +19,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     findById: Driver.findById,
     updateOne: Driver.updateOne,
     findOneAndUpdate: Driver.findOneAndUpdate,
+    findByIdAndUpdate: Driver.findByIdAndUpdate,
     findOneAndDeleteOtp: EmailOtp.findOneAndDelete,
     passengerFindById: Passenger.findById,
   };
@@ -52,7 +53,7 @@ test("driver signup, role-separated login, username login and protected dashboar
   }
 
   try {
-    Driver.exists = async () => Boolean(saved);
+    Driver.exists = async (query) => Boolean(saved) && (query.email === saved.email || Boolean(query.$or));
     Driver.create = async (data) => {
       saved = new Driver({ _id: "507f1f77bcf86cd799439022", ...data });
       return saved;
@@ -70,6 +71,11 @@ test("driver signup, role-separated login, username login and protected dashboar
       refreshTokenHash = update.$set.refreshTokenHash;
       return saved;
     };
+    Driver.findByIdAndUpdate = async (id, update) => {
+      if (id !== saved.id) return null;
+      Object.assign(saved, update.$set);
+      return saved;
+    };
     EmailOtp.findOneAndDelete = async ({ role, email }) => role === "driver" && email === fields.email ? {} : null;
     Passenger.findById = async () => null;
 
@@ -82,7 +88,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     assert.equal(created.body.data.driver.verificationStatus, "pending");
     assert.equal(created.body.data.driver.passwordHash, undefined);
     assert.equal(await bcrypt.compare(fields.password, saved.passwordHash), true);
-    const cookie = created.response.headers.get("set-cookie").split(";")[0];
+    const cookie = created.response.headers.getSetCookie().find((value) => value.startsWith("tesla_pool_driver_session=")).split(";")[0];
     assert.match(cookie, /tesla_pool_driver_session=/);
     assert.ok(created.body.data.accessToken);
 
@@ -104,6 +110,19 @@ test("driver signup, role-separated login, username login and protected dashboar
     assert.equal(current.response.status, 200);
     assert.equal(current.body.data.driver.vehicleModel, "Model 3");
 
+    const edited = await request("/api/drivers/me", { method: "PATCH", headers: { Cookie: cookie }, body: JSON.stringify({ name: "Saikat Das", phone: "01798765432", serviceArea: "Dhanmondi, Dhaka", vehicleModel: "Model Y", vehicleRegistrationNumber: "DHAKA METRO GA 5678", vehicleColor: "Blue", passengerSeats: 3 }) });
+    assert.equal(edited.response.status, 200);
+    assert.equal(edited.body.data.driver.name, "Saikat Das");
+    assert.equal(edited.body.data.driver.serviceArea, "Dhanmondi, Dhaka");
+    assert.equal(edited.body.data.driver.phone, "01798765432");
+    assert.equal(edited.body.data.driver.vehicleModel, "Model Y");
+    assert.equal(edited.body.data.driver.vehicleRegistrationNumber, "DHAKA METRO GA 5678");
+    assert.equal(edited.body.data.driver.vehicleColor, "Blue");
+    assert.equal(edited.body.data.driver.passengerSeats, 3);
+    assert.equal(edited.body.data.driver.verificationStatus, "pending");
+    const unapproved = await request("/api/drivers/me", { method: "PATCH", headers: { Cookie: cookie }, body: JSON.stringify({ email: "new@example.com" }) });
+    assert.equal(unapproved.response.status, 400);
+
     const passengerPage = await request("/api/passengers/me", { headers: { Cookie: cookie } });
     assert.equal(passengerPage.response.status, 401);
     const passengerToken = jwt.sign({ sub: saved.id, role: "passenger" }, process.env.JWT_SECRET);
@@ -121,6 +140,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     Driver.findById = originals.findById;
     Driver.updateOne = originals.updateOne;
     Driver.findOneAndUpdate = originals.findOneAndUpdate;
+    Driver.findByIdAndUpdate = originals.findByIdAndUpdate;
     EmailOtp.findOneAndDelete = originals.findOneAndDeleteOtp;
     Passenger.findById = originals.passengerFindById;
     await new Promise((resolve) => server.close(resolve));

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import Driver from "../models/Driver.js";
+import Passenger from "../models/Passenger.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -8,6 +9,7 @@ import { startSession, refreshSession, endSession } from "../services/sessionSer
 import { consumeRegistrationToken } from "../services/emailOtpService.js";
 import { demoAccountsEnabled } from "../config/demoAccounts.js";
 import { isRealImage, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
+import { clearAdminSession } from "../middlewares/admin.middleware.js";
 
 function publicDriver(driver) {
   return {
@@ -66,6 +68,8 @@ export const registerDriver = asyncHandler(async (request, response) => {
   try {
     const passwordHash = await bcrypt.hash(password, 12);
     const driver = await Driver.create({ name, username, email, passwordHash, emailVerifiedAt: new Date(), ...driverDetails });
+    await endSession(Passenger, "passenger", request, response);
+    clearAdminSession(response);
     const accessToken = await startSession(Driver, driver, "driver", response);
     response.status(201).json(new ApiResponse(201, { driver: publicDriver(driver), accessToken }, "Driver registered successfully."));
   } catch (error) {
@@ -76,9 +80,12 @@ export const registerDriver = asyncHandler(async (request, response) => {
 
 export const loginDriver = asyncHandler(async (request, response) => {
   const { identity, password } = cleanLoginInput(request.body);
-  const driver = await Driver.findOne({ $or: [{ email: identity }, { username: identity }] }).select("+passwordHash");
+  let driver = await Driver.findOne({ $or: [{ email: identity }, { username: identity }] }).select("+passwordHash");
+  if (!driver && demoAccountsEnabled() && identity === "demo_driver") driver = await Driver.findOne({ isDemo: true }).select("+passwordHash");
   if (!driver || (driver.isDemo && !demoAccountsEnabled()) || !(await driver.comparePassword(password))) throw new ApiError(401, "Email/username or password is incorrect.");
 
+  await endSession(Passenger, "passenger", request, response);
+  clearAdminSession(response);
   const accessToken = await startSession(Driver, driver, "driver", response);
   response.json(new ApiResponse(200, { driver: publicDriver(driver), accessToken }, "Driver logged in successfully."));
 });
@@ -94,6 +101,7 @@ export const getCurrentDriver = asyncHandler(async (request, response) => {
 
 export const updateDriverProfile = asyncHandler(async (request, response) => {
   const allowed = ["name", "phone", "licenseNumber", "licenseExpiry", "vehicleModel", "vehicleRegistrationNumber", "vehicleColor", "passengerSeats", "serviceArea"];
+  if (Object.keys(request.body || {}).some((key) => !allowed.includes(key))) throw new ApiError(400, "Email and username cannot be edited.");
   const changes = Object.fromEntries(Object.entries(request.body || {}).filter(([key]) => allowed.includes(key)));
   if (!Object.keys(changes).length) throw new ApiError(400, "No editable profile fields were provided.");
   const current = request.driver;
@@ -110,10 +118,13 @@ export const updateDriverProfile = asyncHandler(async (request, response) => {
     serviceArea: current.serviceArea,
     ...changes,
   });
-  const verificationChanged = details.licenseNumber !== current.licenseNumber || details.licenseExpiry.getTime() !== current.licenseExpiry.getTime() || details.vehicleRegistrationNumber !== current.vehicleRegistrationNumber;
+  const detailChanges = Object.fromEntries(Object.keys(changes).filter((key) => key !== "name").map((key) => [key, details[key]]));
+  const verificationChanged = ["licenseNumber", "licenseExpiry", "vehicleModel", "vehicleRegistrationNumber", "vehicleColor", "passengerSeats"].some((key) =>
+    key in detailChanges && (key === "licenseExpiry" ? detailChanges[key].getTime() !== current[key].getTime() : detailChanges[key] !== current[key])
+  );
   try {
     const driver = await Driver.findByIdAndUpdate(current.id, {
-      $set: { name, ...details, ...(verificationChanged ? { verificationStatus: "pending" } : {}) },
+      $set: { ...(changes.name !== undefined ? { name } : {}), ...detailChanges, ...(verificationChanged ? { verificationStatus: "pending" } : {}) },
     }, { returnDocument: "after", runValidators: true });
     response.json(new ApiResponse(200, { driver: publicDriver(driver) }, "Driver profile updated successfully."));
   } catch (error) {
@@ -124,5 +135,45 @@ export const updateDriverProfile = asyncHandler(async (request, response) => {
 
 export const logoutDriver = asyncHandler(async (request, response) => {
   await endSession(Driver, "driver", request, response);
+  await endSession(Passenger, "passenger", request, response);
+  clearAdminSession(response);
   response.json(new ApiResponse(200, null, "Logged out."));
+});
+
+export const uploadDriverAvatar = asyncHandler(async (request, response) => {
+  if (!request.file) throw new ApiError(400, "Choose an image in the avatar field.");
+  const filename = request.file.filename;
+  if (!(await isRealImage(request.file.path, request.file.mimetype))) {
+    await removeLocalAvatar(filename);
+    throw new ApiError(400, "The file content is not a valid image.");
+  }
+  const driver = await Driver.findOneAndUpdate(
+    { _id: request.driver.id, pendingAvatarFilename: null },
+    { $set: { pendingAvatarFilename: filename } },
+    { returnDocument: "after" }
+  );
+  if (!driver) {
+    await removeLocalAvatar(filename);
+    throw new ApiError(409, "A previous image is waiting for retry. Retry it first.");
+  }
+  try {
+    const updated = await sendPendingAvatarToCloudinary(driver, Driver, "driver");
+    response.json(new ApiResponse(200, { driver: publicDriver(updated) }, "Avatar updated successfully."));
+  } catch {
+    response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Cloudinary update failed. Your image is saved locally; try again."));
+  }
+});
+
+export const retryDriverAvatar = asyncHandler(async (request, response) => {
+  if (!request.driver.pendingAvatarFilename) throw new ApiError(409, "No image is waiting for retry.");
+  try {
+    const updated = await sendPendingAvatarToCloudinary(request.driver, Driver, "driver");
+    response.json(new ApiResponse(200, { driver: publicDriver(updated) }, "Avatar updated successfully."));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      await Driver.updateOne({ _id: request.driver.id, pendingAvatarFilename: request.driver.pendingAvatarFilename }, { $set: { pendingAvatarFilename: null } });
+      throw new ApiError(410, "Saved image is no longer available. Choose it again.");
+    }
+    response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Cloudinary update still failed. Your image remains saved for another retry."));
+  }
 });

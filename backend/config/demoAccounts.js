@@ -18,23 +18,24 @@ export function publicDemoAccounts() {
 
 async function createOrUpdateDemo(Model, role, profile) {
   const { username, password } = demoAccounts[role];
-  const existing = await Model.findOne({ username });
-  if (existing && !existing.isDemo) throw new Error(`Cannot seed ${role} demo: username is owned by a real account.`);
-
-  const passwordHash = await bcrypt.hash(password, 12);
-  if (existing) {
-    await Model.updateOne({ _id: existing.id, isDemo: true }, { $set: { name: role === "passenger" ? "Passenger 1" : "Driver 1", passwordHash, emailVerifiedAt: new Date() } });
-  } else {
-    await Model.create({
-      name: role === "passenger" ? "Passenger 1" : "Driver 1",
-      username,
-      email: `${username}@dhaka-tesla-pool.invalid`,
-      passwordHash,
-      emailVerifiedAt: new Date(),
-      isDemo: true,
-      ...profile,
-    });
+  const existingDemo = await Model.findOne({ isDemo: true });
+  if (existingDemo) {
+    if (role === "passenger" && !existingDemo.phone) await Model.updateOne({ _id: existingDemo.id }, { $set: { phone: "01700000001" } });
+    return;
   }
+  const named = await Model.findOne({ username });
+  if (named) throw new Error(`Cannot seed ${role} demo: username is owned by another account.`);
+
+  await Model.create({
+    name: role === "passenger" ? "Passenger 1" : "Driver 1",
+    username,
+    email: `${username}@dhaka-tesla-pool.invalid`,
+    ...(role === "passenger" ? { phone: "01700000001" } : {}),
+    passwordHash: await bcrypt.hash(password, 12),
+    emailVerifiedAt: new Date(),
+    isDemo: true,
+    ...profile,
+  });
 }
 
 export async function seedDemoAccounts() {

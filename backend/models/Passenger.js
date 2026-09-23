@@ -8,6 +8,7 @@ const passengerSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 80 },
     username: { type: String, required: true, trim: true, lowercase: true },
     email: { type: String, required: true, trim: true, lowercase: true, unique: true },
+    phone: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
     refreshTokenHash: { type: String, default: null, select: false },
     emailVerifiedAt: { type: Date, default: null },

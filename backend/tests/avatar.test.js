@@ -23,6 +23,7 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     findOneAndUpdate: Passenger.findOneAndUpdate,
     updateOne: Passenger.updateOne,
     upload: cloudinary.uploader.upload,
+    destroy: cloudinary.uploader.destroy,
   };
   const state = {
     id: "507f1f77bcf86cd799439011",
@@ -100,11 +101,24 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     assert.equal(result.data.passenger.avatarPending, false);
     assert.equal(result.data.passenger.avatarUrl, state.avatarUrl);
     assert.deepEqual(await readdir(tempDirectory), []);
+
+    const calls = [];
+    cloudinary.uploader.destroy = async () => { calls.push("delete"); return { result: "ok" }; };
+    cloudinary.uploader.upload = async () => {
+      calls.push("upload");
+      return { secure_url: "https://res.cloudinary.com/example/image/upload/replacement.png", public_id: `dhaka-tesla-pool/passengers/${state.id}` };
+    };
+    const replacement = new FormData();
+    replacement.append("avatar", new Blob([png], { type: "image/png" }), "replacement.png");
+    const replaced = await fetch(`${base}/api/passengers/avatar`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: replacement });
+    assert.equal(replaced.status, 200);
+    assert.deepEqual(calls, ["delete", "upload"]);
   } finally {
     Passenger.findById = originals.findById;
     Passenger.findOneAndUpdate = originals.findOneAndUpdate;
     Passenger.updateOne = originals.updateOne;
     cloudinary.uploader.upload = originals.upload;
+    cloudinary.uploader.destroy = originals.destroy;
     await new Promise((resolve) => server.close(resolve));
     await rm(tempDirectory, { recursive: true, force: true });
   }

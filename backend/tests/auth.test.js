@@ -30,6 +30,7 @@ test("registration, duplicate account, login, session, and logout", async () => 
     create: Passenger.create,
     findOne: Passenger.findOne,
     findById: Passenger.findById,
+    findByIdAndUpdate: Passenger.findByIdAndUpdate,
     findOneAndUpdate: Passenger.findOneAndUpdate,
     updateOne: Passenger.updateOne,
     findOneAndDeleteOtp: EmailOtp.findOneAndDelete,
@@ -41,13 +42,14 @@ test("registration, duplicate account, login, session, and logout", async () => 
     name: "Nusrat Rahman",
     username: "nusrat_rahman",
     email: "nusrat@example.com",
+    phone: "01712345678",
   });
   let savedHash;
   let savedEmail;
   let refreshTokenHash;
 
   try {
-    Passenger.exists = async ({ $or }) => Boolean(savedEmail) && $or.some((item) => item.email === savedEmail || item.username === fakePassenger.username);
+    Passenger.exists = async ({ $or, email }) => Boolean(savedEmail) && (email === savedEmail || $or?.some((item) => item.email === savedEmail || item.username === fakePassenger.username));
     Passenger.create = async (data) => {
       savedEmail = data.email;
       savedHash = data.passwordHash;
@@ -57,6 +59,11 @@ test("registration, duplicate account, login, session, and logout", async () => 
       select: async () => Boolean(savedEmail) && $or.some((item) => item.email === savedEmail || item.username === fakePassenger.username) ? new Passenger({ ...fakePassenger.toObject(), passwordHash: savedHash }) : null,
     });
     Passenger.findById = async (id) => id === fakePassenger.id ? fakePassenger : null;
+    Passenger.findByIdAndUpdate = async (id, update) => {
+      if (id !== fakePassenger.id) return null;
+      Object.assign(fakePassenger, update.$set);
+      return fakePassenger;
+    };
     Passenger.updateOne = async (_filter, update) => {
       refreshTokenHash = update.$set.refreshTokenHash;
       return { matchedCount: 1 };
@@ -80,10 +87,11 @@ test("registration, duplicate account, login, session, and logout", async () => 
 
     const registered = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: "NUSRAT@example.com", password: "strong-password", registrationToken: "a".repeat(64) }),
+      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: "NUSRAT@example.com", phone: fakePassenger.phone, password: "strong-password", registrationToken: "a".repeat(64) }),
     });
     assert.equal(registered.response.status, 201);
     assert.equal(registered.body.data.passenger.email, fakePassenger.email);
+    assert.equal(registered.body.data.passenger.phone, fakePassenger.phone);
     assert.equal(registered.body.data.passenger.passwordHash, undefined);
     assert.equal(savedEmail, fakePassenger.email);
     assert.notEqual(savedHash, "strong-password");
@@ -95,7 +103,7 @@ test("registration, duplicate account, login, session, and logout", async () => 
 
     const duplicate = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: fakePassenger.email, password: "strong-password" }),
+      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: fakePassenger.email, phone: fakePassenger.phone, password: "strong-password" }),
     });
     assert.equal(duplicate.response.status, 409);
 
@@ -125,7 +133,7 @@ test("registration, duplicate account, login, session, and logout", async () => 
     const rotatedCookies = refreshed.response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
     const reused = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: latestCookies } });
     assert.equal(reused.response.status, 401);
-    const sessionCookie = loggedIn.response.headers.get("set-cookie").split(";")[0];
+    const sessionCookie = loggedIn.response.headers.getSetCookie().find((value) => value.startsWith("tesla_pool_session=")).split(";")[0];
 
     const anonymous = await request(server, "/me");
     assert.equal(anonymous.response.status, 401);
@@ -133,14 +141,13 @@ test("registration, duplicate account, login, session, and logout", async () => 
     assert.equal(current.response.status, 200);
     assert.equal(current.body.data.passenger.name, fakePassenger.name);
 
-    fakePassenger.username = undefined; // Simulate an account created before usernames existed.
-    const legacyUsername = await request(server, "/username", {
-      method: "PATCH",
-      headers: { Cookie: sessionCookie },
-      body: JSON.stringify({ username: "legacy_rider" }),
-    });
-    assert.equal(legacyUsername.response.status, 200);
-    assert.equal(legacyUsername.body.data.passenger.username, "legacy_rider");
+    const edited = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ name: "Saikat Das" }) });
+    assert.equal(edited.response.status, 200);
+    assert.equal(edited.body.data.passenger.name, "Saikat Das");
+    const renamed = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ username: "saikat_passenger" }) });
+    assert.equal(renamed.response.status, 400);
+    const unverifiedEmail = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ email: "new@example.com" }) });
+    assert.equal(unverifiedEmail.response.status, 400);
 
     const expiredToken = jwt.sign({ sub: fakePassenger.id }, process.env.JWT_SECRET, { expiresIn: -1 });
     const expired = await request(server, "/me", { headers: { Authorization: `Bearer ${expiredToken}` } });

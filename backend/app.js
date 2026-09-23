@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import passengerRoutes from "./routes/passengerRoutes.js";
 import driverRoutes from "./routes/driverRoutes.js";
 import emailOtpRoutes from "./routes/emailOtpRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import { publicDemoAccounts } from "./config/demoAccounts.js";
 import { ApiError } from "./utils/apiError.js";
 import { ApiResponse } from "./utils/apiResponse.js";
@@ -28,7 +29,7 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/api", (request, response, next) => {
-  const needsDatabase = /^\/(passengers|drivers|email-otp)(\/|$)/.test(request.path);
+  const needsDatabase = /^\/(passengers|drivers|email-otp|admin)(\/|$)/.test(request.path);
   if (needsDatabase && !app.locals.databaseReady) {
     return response.status(503).json(new ApiResponse(503, null, "Database is temporarily unavailable. Please try again shortly."));
   }
@@ -38,6 +39,7 @@ app.use("/api", (request, response, next) => {
 app.use("/api/passengers", passengerRoutes);
 app.use("/api/drivers", driverRoutes);
 app.use("/api/email-otp", emailOtpRoutes);
+app.use("/api/admin", adminRoutes);
 app.get("/api/demo-accounts", (_request, response) => {
   response.set("Cache-Control", "no-store");
   const accounts = publicDemoAccounts();

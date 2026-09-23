@@ -25,6 +25,7 @@ test("opt-in demo seeding creates one Passenger and one Driver with working auto
     await seedDemoAccounts();
     const exposed = publicDemoAccounts();
     assert.equal(created.passenger.isDemo, true);
+    assert.equal(created.passenger.phone, "01700000001");
     assert.equal(created.driver.isDemo, true);
     assert.equal(created.driver.vehicleModel, "Model 3");
     assert.equal(await bcrypt.compare(exposed.passenger.password, created.passenger.passwordHash), true);
