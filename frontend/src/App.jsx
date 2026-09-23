@@ -153,7 +153,7 @@ function AuthPage({ mode, role, onAuthenticated }) {
   }
 
   return (
-    <div className="auth-layout">
+    <div className={`auth-layout ${isRegister ? "register-layout" : ""}`}>
       <section className="story-panel">
         <Brand light />
         <div className="story-copy">

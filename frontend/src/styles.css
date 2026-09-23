@@ -13,6 +13,9 @@ a { color: inherit; }
 .brand-name strong { font-weight: 800; }
 .brand-light { color: #fff; }
 .auth-layout { display: grid; grid-template-columns: minmax(360px, 48%) minmax(420px, 52%); min-height: 100vh; }
+.register-layout { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+.register-layout .story-panel { height: 100%; min-height: 0; }
+.register-layout .form-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .story-panel { min-height: 100vh; padding: 38px clamp(32px, 5vw, 80px); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; color: #fff; background: radial-gradient(circle at 76% 32%, #254b49 0, transparent 33%), linear-gradient(145deg, #102c34 0%, #112730 62%, #0a2027 100%); }
 .story-copy { max-width: 590px; margin: 70px 0 40px; }
 .eyebrow { display: inline-block; color: #4d785c; font-size: 11px; letter-spacing: .18em; font-weight: 800; text-transform: uppercase; }
@@ -123,3 +126,4 @@ h1, h2, p { margin-top: 0; }
 @media (max-width: 900px) { .auth-layout { grid-template-columns: 42% 58%; }.story-panel { padding: 30px; }.story-copy h1 { font-size: 45px; }.route-card { margin-top: 35px; }.home-header { padding: 0 24px; } }
 @media (max-width: 700px) { .auth-layout { display: block; }.story-panel { display: none; }.form-panel { min-height: 100vh; padding: 23px 22px; justify-content: space-between; }.mobile-brand { display: block; width: 100%; }.auth-box { margin: auto; padding: 35px 0; }.driver-fields { grid-template-columns: 1fr; }.form-footer { align-self: center; }.home-header { min-height: 70px; }.home-header .brand-name { font-size: 10px; }.header-user { display: none; }.home-main { width: min(100% - 28px, 500px); margin: 22px auto 36px; }.home-hero { display: block; }.home-hero > div:first-child { padding: 36px 26px; }.home-hero h1 { font-size: 37px; }.hero-art, .driver-hero-art { min-height: 150px; }.art-circle { transform: scale(.65); }.driver-car { width: 95px; height: 95px; font-size: 65px; }.home-grid { grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }.info-card { min-height: auto; padding: 25px; }.next-card { min-height: 210px; } }
 @media (max-width: 380px) { .brand-name { font-size: 11px; }.home-header { padding: 0 14px; }.logout-button { padding: 9px; }.home-hero h1 { font-size: 32px; } }
+@media (max-width: 700px) { .register-layout { height: auto; min-height: 100vh; overflow: visible; }.register-layout .form-panel { min-height: 100vh; overflow: visible; } }
