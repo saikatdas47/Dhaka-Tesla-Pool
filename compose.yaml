@@ -1,13 +1,16 @@
 services:
   api:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     env_file:
       - ./backend/.env
     environment:
       PORT: "4000"
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - passenger_uploads:/app/uploads
     healthcheck:
       test:
         - CMD
@@ -18,3 +21,6 @@ services:
       timeout: 3s
       retries: 3
       start_period: 20s
+
+volumes:
+  passenger_uploads:
