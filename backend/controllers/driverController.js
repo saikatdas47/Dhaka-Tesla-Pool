@@ -8,8 +8,10 @@ import { cleanAccountInput, cleanLoginInput } from "../utils/authInput.js";
 import { startSession, refreshSession, endSession } from "../services/sessionService.js";
 import { consumeRegistrationToken } from "../services/emailOtpService.js";
 import { demoAccountsEnabled } from "../config/demoAccounts.js";
-import { isRealImage, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
+import { isRealImage, removeAccountAvatar, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
 import { clearAdminSession } from "../middlewares/admin.middleware.js";
+import { requireArea } from "../utils/rideRules.js";
+import Pool from "../models/Pool.js";
 
 function publicDriver(driver) {
   return {
@@ -25,6 +27,10 @@ function publicDriver(driver) {
     vehicleColor: driver.vehicleColor,
     passengerSeats: driver.passengerSeats,
     serviceArea: driver.serviceArea,
+    availability: driver.availability || "offline",
+    currentArea: driver.currentArea || null,
+    locationSource: driver.locationSource || "manual",
+    locationUpdatedAt: driver.locationUpdatedAt || null,
     verificationStatus: driver.verificationStatus,
     avatarUrl: driver.avatarUrl || null,
     avatarPending: Boolean(driver.pendingAvatarFilename),
@@ -50,7 +56,7 @@ function cleanDriverInput(body) {
   if (!["Model 3", "Model Y", "Model S", "Model X"].includes(vehicleModel)) throw new ApiError(400, "Choose a Tesla model.");
   if (vehicleRegistrationNumber.length < 3 || vehicleRegistrationNumber.length > 40) throw new ApiError(400, "Enter a valid vehicle registration number.");
   if (vehicleColor.length < 2 || vehicleColor.length > 30) throw new ApiError(400, "Enter the vehicle color.");
-  if (!Number.isInteger(passengerSeats) || passengerSeats < 1 || passengerSeats > 6) throw new ApiError(400, "Passenger seats must be between 1 and 6.");
+  if (!Number.isInteger(passengerSeats) || passengerSeats < 2 || passengerSeats > 4) throw new ApiError(400, "Passenger seats must be between 2 and 4.");
   if (serviceArea.length < 2 || serviceArea.length > 80) throw new ApiError(400, "Enter your usual service area.");
 
   return { phone, licenseNumber, licenseExpiry: expiry, vehicleModel, vehicleRegistrationNumber, vehicleColor, passengerSeats, serviceArea };
@@ -67,7 +73,7 @@ export const registerDriver = asyncHandler(async (request, response) => {
 
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    const driver = await Driver.create({ name, username, email, passwordHash, emailVerifiedAt: new Date(), ...driverDetails });
+    const driver = await Driver.create({ name, username, email, passwordHash, emailVerifiedAt: new Date(), ...driverDetails, verificationHistory: [{ status: "pending", at: new Date(), by: "driver registration" }] });
     await endSession(Passenger, "passenger", request, response);
     clearAdminSession(response);
     const accessToken = await startSession(Driver, driver, "driver", response);
@@ -81,7 +87,6 @@ export const registerDriver = asyncHandler(async (request, response) => {
 export const loginDriver = asyncHandler(async (request, response) => {
   const { identity, password } = cleanLoginInput(request.body);
   let driver = await Driver.findOne({ $or: [{ email: identity }, { username: identity }] }).select("+passwordHash");
-  if (!driver && demoAccountsEnabled() && identity === "demo_driver") driver = await Driver.findOne({ isDemo: true }).select("+passwordHash");
   if (!driver || (driver.isDemo && !demoAccountsEnabled()) || !(await driver.comparePassword(password))) throw new ApiError(401, "Email/username or password is incorrect.");
 
   await endSession(Passenger, "passenger", request, response);
@@ -105,6 +110,9 @@ export const updateDriverProfile = asyncHandler(async (request, response) => {
   const changes = Object.fromEntries(Object.entries(request.body || {}).filter(([key]) => allowed.includes(key)));
   if (!Object.keys(changes).length) throw new ApiError(400, "No editable profile fields were provided.");
   const current = request.driver;
+  if (changes.passengerSeats !== undefined && await Pool.exists({ driver: current.id, status: { $in: ["MATCHED", "DRIVER_ARRIVED", "STARTED"] } })) {
+    throw new ApiError(409, "Finish the active ride before changing seat capacity.");
+  }
   const name = changes.name === undefined ? current.name : String(changes.name).trim();
   if (name.length < 2 || name.length > 80) throw new ApiError(400, "Name must be 2 to 80 characters.");
   const details = cleanDriverInput({
@@ -124,13 +132,28 @@ export const updateDriverProfile = asyncHandler(async (request, response) => {
   );
   try {
     const driver = await Driver.findByIdAndUpdate(current.id, {
-      $set: { ...(changes.name !== undefined ? { name } : {}), ...detailChanges, ...(verificationChanged ? { verificationStatus: "pending" } : {}) },
+      $set: { ...(changes.name !== undefined ? { name } : {}), ...detailChanges, ...(verificationChanged ? { verificationStatus: "pending", availability: "offline" } : {}) },
+      ...(verificationChanged && current.verificationStatus !== "pending" ? { $push: { verificationHistory: { status: "pending", at: new Date(), by: "driver profile update" } } } : {}),
     }, { returnDocument: "after", runValidators: true });
     response.json(new ApiResponse(200, { driver: publicDriver(driver) }, "Driver profile updated successfully."));
   } catch (error) {
     if (error.code === 11000) throw new ApiError(409, "Driver licence or vehicle registration is already in use.");
     throw error;
   }
+});
+
+export const updateDriverAvailability = asyncHandler(async (request, response) => {
+  const { availability, currentArea } = request.body || {};
+  if (Object.keys(request.body || {}).some((key) => !["availability", "currentArea"].includes(key))) throw new ApiError(400, "Only availability and current area can be updated here.");
+  if (availability !== undefined && !["online", "offline"].includes(availability)) throw new ApiError(400, "Choose online or offline.");
+  const area = currentArea === undefined ? request.driver.currentArea : requireArea(currentArea);
+  const nextAvailability = availability || request.driver.availability || "offline";
+  if (nextAvailability === "online" && !area) throw new ApiError(400, "Choose your current area before going online.");
+  if (nextAvailability === "online" && request.driver.verificationStatus !== "approved") throw new ApiError(403, "Admin approval is required before going online.");
+  if (nextAvailability === "online" && new Date(request.driver.licenseExpiry) <= new Date()) throw new ApiError(403, "Renew your driving licence before going online.");
+  if (nextAvailability === "online" && (request.driver.passengerSeats < 2 || request.driver.passengerSeats > 4)) throw new ApiError(403, "Passenger seats must be between 2 and 4 before going online.");
+  const driver = await Driver.findByIdAndUpdate(request.driver.id, { $set: { availability: nextAvailability, currentArea: area, ...(currentArea !== undefined ? { locationSource: "manual", locationUpdatedAt: new Date() } : {}) } }, { returnDocument: "after", runValidators: true });
+  response.json(new ApiResponse(200, { driver: publicDriver(driver) }, "Driver location and availability updated."));
 });
 
 export const logoutDriver = asyncHandler(async (request, response) => {
@@ -175,5 +198,15 @@ export const retryDriverAvatar = asyncHandler(async (request, response) => {
       throw new ApiError(410, "Saved image is no longer available. Choose it again.");
     }
     response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Cloudinary update still failed. Your image remains saved for another retry."));
+  }
+});
+
+export const removeDriverAvatar = asyncHandler(async (request, response) => {
+  if (request.driver.pendingAvatarFilename) throw new ApiError(409, "Retry the saved image before removing your photo.");
+  try {
+    const driver = await removeAccountAvatar(request.driver, Driver);
+    response.json(new ApiResponse(200, { driver: publicDriver(driver) }, "Profile photo removed."));
+  } catch (error) {
+    throw new ApiError(502, error.message || "Could not remove your photo. Try again.");
   }
 });

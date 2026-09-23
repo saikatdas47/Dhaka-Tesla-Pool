@@ -29,6 +29,20 @@ export async function removeLocalAvatar(filename) {
   await unlink(localAvatarPath(filename));
 }
 
+export async function removeAccountAvatar(account, Model) {
+  if (account.pendingAvatarFilename) throw new Error("Retry the saved image before removing the current photo.");
+  if (!account.avatarPublicId) return account;
+  const deleted = await deleteFromCloudinary(account.avatarPublicId);
+  if (!["ok", "not found"].includes(deleted.result)) throw new Error("Cloudinary could not remove the photo.");
+  const updated = await Model.findOneAndUpdate(
+    { _id: account.id, avatarPublicId: account.avatarPublicId, pendingAvatarFilename: null },
+    { $set: { avatarUrl: null, avatarPublicId: null } },
+    { returnDocument: "after" }
+  );
+  if (!updated) throw new Error("Photo changed while it was being removed. Refresh and try again.");
+  return updated;
+}
+
 export async function sendPendingAvatarToCloudinary(account, Model, role) {
   const filename = account.pendingAvatarFilename;
   const localPath = localAvatarPath(filename);

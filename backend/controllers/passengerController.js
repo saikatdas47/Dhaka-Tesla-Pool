@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import Passenger from "../models/Passenger.js";
 import Driver from "../models/Driver.js";
-import { isRealImage, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
+import { isRealImage, removeAccountAvatar, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -47,7 +47,6 @@ export const registerPassenger = asyncHandler(async (request, response) => {
 export const loginPassenger = asyncHandler(async (request, response) => {
   const { identity, password } = cleanLoginInput(request.body);
   let passenger = await Passenger.findOne({ $or: [{ email: identity }, { username: identity }] }).select("+passwordHash");
-  if (!passenger && demoAccountsEnabled() && identity === "demo_passenger") passenger = await Passenger.findOne({ isDemo: true }).select("+passwordHash");
   if (!passenger || (passenger.isDemo && !demoAccountsEnabled()) || !(await passenger.comparePassword(password))) throw new ApiError(401, "Email/username or password is incorrect.");
 
   await endSession(Driver, "driver", request, response);
@@ -124,5 +123,15 @@ export const retryPassengerAvatar = asyncHandler(async (request, response) => {
       throw new ApiError(410, "Saved image is no longer available. Choose it again.");
     }
     response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Upload still failed. Your image remains saved for another retry."));
+  }
+});
+
+export const removePassengerAvatar = asyncHandler(async (request, response) => {
+  if (request.passenger.pendingAvatarFilename) throw new ApiError(409, "Retry the saved image before removing your photo.");
+  try {
+    const passenger = await removeAccountAvatar(request.passenger, Passenger);
+    response.json(new ApiResponse(200, { passenger: publicPassenger(passenger) }, "Profile photo removed."));
+  } catch (error) {
+    throw new ApiError(502, error.message || "Could not remove your photo. Try again.");
   }
 });

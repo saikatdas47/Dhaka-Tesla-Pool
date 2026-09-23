@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import RolePage from "./RolePages.jsx";
 
 async function api(role, path, options = {}, mayRefresh = true) {
   const collection = role === "driver" ? "drivers" : "passengers";
@@ -222,7 +223,7 @@ function AuthPage({ mode, role, onAuthenticated }) {
                 <label className="field">Tesla model<select value={vehicleModel} onChange={(event) => setVehicleModel(event.target.value)} required><option value="">Choose model</option><option>Model 3</option><option>Model Y</option><option>Model S</option><option>Model X</option></select></label>
                 <label className="field">Vehicle registration number<input value={vehicleRegistrationNumber} onChange={(event) => setVehicleRegistrationNumber(event.target.value)} maxLength="40" required /></label>
                 <label className="field">Vehicle color<input value={vehicleColor} onChange={(event) => setVehicleColor(event.target.value)} maxLength="30" required /></label>
-                <label className="field">Passenger seats<select value={passengerSeats} onChange={(event) => setPassengerSeats(event.target.value)} required>{[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count}</option>)}</select></label>
+                <label className="field">Passenger seats<select value={passengerSeats} onChange={(event) => setPassengerSeats(event.target.value)} required>{[2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}</select></label>
                 <label className="field">Usual service area<input value={serviceArea} onChange={(event) => setServiceArea(event.target.value)} placeholder="e.g. Banani, Dhaka" maxLength="80" required /></label>
                 <p className="driver-note">Your location is not tracked during signup. Licence and vehicle details will show as pending verification.</p>
               </div>
@@ -253,303 +254,113 @@ function AuthPage({ mode, role, onAuthenticated }) {
   );
 }
 
-function ProfileEditForm({ role, account, onUpdated, onCancel }) {
-  const isDriver = role === "driver";
-  const originalFields = {
-    name: account.name,
-    ...(isDriver ? {
-      phone: account.phone,
-      licenseNumber: account.licenseNumber,
-      licenseExpiry: new Date(new Date(account.licenseExpiry).getTime() + 6 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      vehicleModel: account.vehicleModel,
-      vehicleRegistrationNumber: account.vehicleRegistrationNumber,
-      vehicleColor: account.vehicleColor,
-      passengerSeats: String(account.passengerSeats),
-      serviceArea: account.serviceArea,
-    } : {}),
-  };
-  const [fields, setFields] = useState(originalFields);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  function field(label, key, type = "text") {
-    return <label className="field" key={key}>{label}<input type={type} value={fields[key]} onChange={(event) => setFields((current) => ({ ...current, [key]: event.target.value }))} required /></label>;
-  }
-  async function save(event) {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      const changes = Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== originalFields[key]));
-      if (!Object.keys(changes).length) throw new Error("Change a field before saving.");
-      const result = await api(role, "/me", { method: "PATCH", body: JSON.stringify(changes) });
-      onUpdated(result[role]);
-      onCancel();
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-  return <form className="profile-edit-form" onSubmit={save}>
-    {field("Full name", "name")}
-    {isDriver && <div className="profile-edit-grid">
-      {field("Mobile number", "phone", "tel")}
-      {field("Driving licence number", "licenseNumber")}
-      {field("Licence expiry", "licenseExpiry", "date")}
-      <label className="field">Tesla model<select value={fields.vehicleModel} onChange={(event) => setFields((current) => ({ ...current, vehicleModel: event.target.value }))}>{["Model 3", "Model Y", "Model S", "Model X"].map((model) => <option key={model}>{model}</option>)}</select></label>
-      {field("Vehicle registration", "vehicleRegistrationNumber")}
-      {field("Vehicle color", "vehicleColor")}
-      <label className="field">Passenger seats<select value={fields.passengerSeats} onChange={(event) => setFields((current) => ({ ...current, passengerSeats: event.target.value }))}>{[1, 2, 3, 4, 5, 6].map((count) => <option key={count}>{count}</option>)}</select></label>
-      {field("Usual service area", "serviceArea")}
-    </div>}
-    {isDriver && <p className="driver-note">Changing licence or registration details sends your profile back for admin review.</p>}
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="profile-actions"><button className="retry-button" type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button className="retry-button" type="button" onClick={onCancel}>Cancel</button></div>
-  </form>;
-}
-
-function Home({ passenger, onLogout, onPassengerUpdated }) {
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
-  const [editing, setEditing] = useState(false);
-
-  async function refreshPassenger() {
-    try {
-      const result = await api("passenger", "/me");
-      onPassengerUpdated(result.passenger);
-    } catch {
-      // Keep the current profile visible if the refresh fails.
-    }
-  }
-
-  async function handleAvatarChange(event) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
-      setError("Choose a JPG, PNG, or WebP image no larger than 5 MB.");
-      return;
-    }
-
-    setUploading(true);
-    setError("");
-    try {
-      const body = new FormData();
-      body.append("avatar", file);
-      const result = await api("passenger", "/avatar", { method: "POST", body });
-      onPassengerUpdated(result.passenger);
-    } catch (uploadError) {
-      setError(uploadError.message);
-      await refreshPassenger();
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function retryAvatar() {
-    setUploading(true);
-    setError("");
-    try {
-      const result = await api("passenger", "/avatar/retry", { method: "POST" });
-      onPassengerUpdated(result.passenger);
-    } catch (uploadError) {
-      setError(uploadError.message);
-      await refreshPassenger();
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    setError("");
-    try {
-      await api("passenger", "/logout", { method: "POST" });
-      onLogout();
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
-  return (
-    <div className="home-layout">
-      <header className="home-header">
-        <Brand />
-        <div className="header-actions"><span className="header-user">{passenger.name}</span><button type="button" className="logout-button" onClick={handleLogout} disabled={loggingOut}>{loggingOut ? "Signing out…" : "Log out"}</button></div>
-      </header>
-      <main className="home-main">
-        <div className="home-hero">
-          <div><span className="eyebrow">YOUR HOME</span><h1>Good to have you here,<br /><em>{passenger.name.split(" ")[0]}.</em></h1><p>Your Dhaka Tesla Pool account is ready. The city is full of places to go, and your journey starts here.</p></div>
-          <div className="hero-art" aria-hidden="true"><div className="art-road"><span className="art-dot one" /><span className="art-dot two" /><span className="art-dot three" /></div><span className="art-label top">BANANI</span><span className="art-label bottom">MOHAKHALI</span><span className="art-circle">D<span>•</span></span></div>
-        </div>
-        <div className="home-grid">
-          <section className="info-card"><span className="card-kicker">01 / ACCOUNT</span><h2>Your profile</h2><p>You're signed in and ready for the next step.</p>
-            <button className="retry-button" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Close edit" : "Edit profile"}</button>
-            {editing && <ProfileEditForm role="passenger" account={passenger} onUpdated={onPassengerUpdated} onCancel={() => setEditing(false)} />}
-            <div className="avatar-row">
-              {passenger.avatarUrl ? <img className="avatar-preview" src={passenger.avatarUrl} alt={`${passenger.name}'s profile`} /> : <span className="avatar-preview avatar-initial" aria-hidden="true">{passenger.name.charAt(0).toUpperCase()}</span>}
-              <div className="avatar-controls">
-                <label className="avatar-upload">{uploading ? "Uploading…" : "Upload photo"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={uploading || passenger.avatarPending} /></label>
-                <small>JPG, PNG or WebP · up to 5 MB</small>
-                {passenger.avatarPending && <button type="button" className="retry-button" onClick={retryAvatar} disabled={uploading}>Retry saved photo</button>}
-              </div>
-            </div>
-            <dl><div><dt>Name</dt><dd>{passenger.name}</dd></div><div><dt>Username</dt><dd>{passenger.username || "Not set (older account)"}</dd></div><div><dt>Email</dt><dd>{passenger.email}</dd></div><div><dt>Phone</dt><dd>{passenger.phone || "Not set (older account)"}</dd></div><div><dt>Account type</dt><dd>Passenger</dd></div></dl>
-          </section>
-          <section className="info-card next-card"><span className="card-kicker">02 / WHAT'S NEXT</span><h2>Ride booking is coming next.</h2><p>Registration and sign in are ready. Ride requests, matching, and fares will be added in the next stage.</p><div className="next-mark" aria-hidden="true">↗</div></section>
-        </div>
-        {error && <p className="form-error" role="alert">{error}</p>}
-      </main>
-      <footer className="home-footer">Share a seat. Split the fare. Survive Dhaka traffic.</footer>
-    </div>
-  );
-}
-
-function DriverHome({ driver, onLogout, onDriverUpdated }) {
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [error, setError] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  async function refreshDriver() {
-    try { onDriverUpdated((await api("driver", "/me")).driver); } catch { /* Keep current profile. */ }
-  }
-
-  async function handleAvatarChange(event) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
-      setError("Choose a JPG, PNG, or WebP image no larger than 5 MB.");
-      return;
-    }
-    setUploading(true);
-    setError("");
-    try {
-      const body = new FormData();
-      body.append("avatar", file);
-      onDriverUpdated((await api("driver", "/avatar", { method: "POST", body })).driver);
-    } catch (requestError) {
-      setError(requestError.message);
-      await refreshDriver();
-    } finally { setUploading(false); }
-  }
-
-  async function retryAvatar() {
-    setUploading(true);
-    setError("");
-    try { onDriverUpdated((await api("driver", "/avatar/retry", { method: "POST" })).driver); }
-    catch (requestError) { setError(requestError.message); await refreshDriver(); }
-    finally { setUploading(false); }
-  }
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    setError("");
-    try {
-      await api("driver", "/logout", { method: "POST" });
-      onLogout();
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
-  return (
-    <div className="home-layout driver-home">
-      <header className="home-header"><Brand /><div className="header-actions"><span className="header-user">Driver · {driver.name}</span><button className="logout-button" onClick={handleLogout} disabled={loggingOut}>{loggingOut ? "Signing out…" : "Log out"}</button></div></header>
-      <main className="home-main">
-        <div className="home-hero driver-hero">
-          <div><span className="eyebrow">DRIVER DASHBOARD</span><h1>Welcome to the driver's seat, <em>{driver.name.split(" ")[0]}.</em></h1><p>Your driver profile and Tesla details are ready. Ride offers will appear here when that feature is built.</p></div>
-          <div className="driver-hero-art" aria-hidden="true"><span className="driver-car">↗</span><span className="driver-hero-caption">DHAKA · TESLA POOL</span></div>
-        </div>
-        <div className="home-grid">
-          <section className="info-card"><span className="card-kicker">01 / DRIVER PROFILE</span><h2>{driver.name}</h2><p className="status-pill">Verification {driver.verificationStatus}</p><p>Project admin reviews driver licence and Tesla details before approval.</p>
-            <div className="avatar-row">{driver.avatarUrl ? <img className="avatar-preview" src={driver.avatarUrl} alt={`${driver.name}'s profile`} /> : <span className="avatar-preview avatar-initial" aria-hidden="true">{driver.name.charAt(0).toUpperCase()}</span>}<div className="avatar-controls"><label className="avatar-upload">{uploading ? "Uploading…" : driver.avatarUrl ? "Change photo" : "Upload photo"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={uploading || driver.avatarPending} /></label><small>JPG, PNG or WebP · up to 5 MB</small>{driver.avatarPending && <button type="button" className="retry-button" onClick={retryAvatar} disabled={uploading}>Retry saved photo</button>}</div></div>
-            <button className="retry-button" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Close edit" : "Edit profile"}</button>
-            {editing && <ProfileEditForm role="driver" account={driver} onUpdated={onDriverUpdated} onCancel={() => setEditing(false)} />}
-            <dl><div><dt>Username</dt><dd>{driver.username}</dd></div><div><dt>Email</dt><dd>{driver.email}</dd></div><div><dt>Phone</dt><dd>{driver.phone}</dd></div><div><dt>Licence</dt><dd>{driver.licenseNumber}</dd></div><div><dt>Expires</dt><dd>{new Date(driver.licenseExpiry).toLocaleDateString()}</dd></div></dl></section>
-          <section className="info-card"><span className="card-kicker">02 / YOUR TESLA</span><h2>{driver.vehicleModel}</h2><p>Your usual driving area: {driver.serviceArea}</p><dl><div><dt>Registration</dt><dd>{driver.vehicleRegistrationNumber}</dd></div><div><dt>Color</dt><dd>{driver.vehicleColor}</dd></div><div><dt>Seats</dt><dd>{driver.passengerSeats} passenger seats</dd></div></dl><p className="driver-note">This area is a profile setting, not live GPS location.</p></section>
-        </div>
-        <section className="driver-next"><span className="card-kicker">COMING NEXT</span><h2>Ride offers and trips</h2><p>There are no live ride requests yet. Matching, trip status, and earnings will be added in a later stage.</p></section>
-        {error && <p className="form-error" role="alert">{error}</p>}
-      </main>
-      <footer className="home-footer">Share a seat. Split the fare. Survive Dhaka traffic.</footer>
-    </div>
-  );
+function DriverDetails({ driver }) {
+  return <dl><div><dt>Username</dt><dd>{driver.username}</dd></div><div><dt>Email</dt><dd>{driver.email}</dd></div><div><dt>Phone</dt><dd>{driver.phone}</dd></div><div><dt>Licence</dt><dd>{driver.licenseNumber}</dd></div><div><dt>Licence expires</dt><dd>{driver.licenseExpiry ? new Date(driver.licenseExpiry).toLocaleDateString() : "—"}</dd></div><div><dt>Tesla</dt><dd>{driver.vehicleModel}</dd></div><div><dt>Registration</dt><dd>{driver.vehicleRegistrationNumber}</dd></div><div><dt>Color</dt><dd>{driver.vehicleColor}</dd></div><div><dt>Seats</dt><dd>{driver.passengerSeats}</dd></div><div><dt>Usual area</dt><dd>{driver.serviceArea}</dd></div><div><dt>Current area</dt><dd>{driver.currentArea || "Not selected"}</dd></div><div><dt>Availability</dt><dd>{driver.availability}</dd></div><div><dt>Location source</dt><dd>{driver.locationSource || "manual"}</dd></div><div><dt>Location updated</dt><dd>{driver.locationUpdatedAt ? new Date(driver.locationUpdatedAt).toLocaleString() : "Not set"}</dd></div><div><dt>Email verified</dt><dd>{driver.emailVerifiedAt ? new Date(driver.emailVerifiedAt).toLocaleString() : "Not verified"}</dd></div><div><dt>Joined</dt><dd>{driver.createdAt ? new Date(driver.createdAt).toLocaleString() : "—"}</dd></div></dl>;
 }
 
 function AdminPage({ onAuthenticated, onLoggedOut }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const detailMatch = location.pathname.match(/^\/admin\/(review|drivers)\/([a-f\d]{24})$/i);
+  const detailId = detailMatch?.[2];
+  const detailSection = detailMatch?.[1];
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [drivers, setDrivers] = useState([]);
   const [overview, setOverview] = useState(null);
   const [section, setSection] = useState("overview");
+  const [drivers, setDrivers] = useState([]);
+  const [pages, setPages] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [field, setField] = useState("all");
+  const [seats, setSeats] = useState("");
+  const [applied, setApplied] = useState({ search: "", field: "all", seats: "" });
   const [workingId, setWorkingId] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    adminApi("/me").then(() => { setSignedIn(true); onAuthenticated(); }).catch(() => onLoggedOut()).finally(() => setLoading(false));
+    const next = location.pathname.split("/")[2];
+    setSection(["review", "drivers", "statistics"].includes(next) ? next : "overview");
+  }, [location.pathname]);
+
+  const listPath = section === "review"
+    ? "/drivers/pending?page=" + page
+    : "/drivers?" + new URLSearchParams({ page: String(page), q: applied.search, field: applied.field, seats: applied.seats });
+  useEffect(() => {
+    adminApi("/me").then((result) => { setUsername(result.username); setSignedIn(true); onAuthenticated(); })
+      .catch(() => onLoggedOut()).finally(() => setLoading(false));
   }, []);
   useEffect(() => {
     if (!signedIn) return;
-    Promise.all([adminApi("/drivers/pending"), adminApi("/overview")])
-      .then(([pending, summary]) => { setDrivers(pending.drivers); setOverview(summary); })
-      .catch((requestError) => setError(requestError.message));
+    const refresh = () => adminApi("/overview").then(setOverview).catch((failure) => setError(failure.message));
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    return () => window.clearInterval(timer);
   }, [signedIn]);
+  useEffect(() => {
+    if (!signedIn || !["review", "drivers"].includes(section)) return;
+    adminApi(listPath).then((result) => { setDrivers(result.drivers); setPages(result.pages); })
+      .catch((failure) => setError(failure.message));
+  }, [signedIn, section, page, applied]);
+  useEffect(() => {
+    if (!signedIn || !detailId) { setDetail(null); setDetailError(""); return; }
+    let current = true;
+    setDetailLoading(true); setDetailError("");
+    adminApi("/drivers/" + detailId).then((result) => { if (current) setDetail(result.driver); })
+      .catch((failure) => { if (current) setDetailError(failure.message); })
+      .finally(() => { if (current) setDetailLoading(false); });
+    return () => { current = false; };
+  }, [signedIn, detailId]);
 
   async function login(event) {
-    event.preventDefault();
-    setError("");
+    event.preventDefault(); setError("");
     try {
       await adminApi("/login", { method: "POST", body: JSON.stringify({ username, password }) });
-      setPassword("");
-      setSignedIn(true);
-      onAuthenticated();
-    } catch (requestError) { setError(requestError.message); }
+      setPassword(""); setSignedIn(true); onAuthenticated();
+    } catch (failure) { setError(failure.message); }
+  }
+  async function fillLocalAdmin() {
+    setError("");
+    try { const result = await adminApi("/local-autofill"); setUsername(result.username); setPassword(result.password); }
+    catch (failure) { setError(failure.message); }
   }
   async function review(id, status) {
-    setWorkingId(id);
-    setError("");
+    if (status === "unverified" && !window.confirm("Remove this driver's approval? The driver will go offline.")) return;
+    setWorkingId(id); setError("");
     try {
-      await adminApi(`/drivers/${id}/verification`, { method: "PATCH", body: JSON.stringify({ status }) });
-      setDrivers((current) => current.filter((driver) => driver.id !== id));
-      setOverview((current) => current && ({ ...current, pending: current.pending - 1, [status]: current[status] + 1 }));
-    } catch (requestError) { setError(requestError.message); }
+      const changed = await adminApi("/drivers/" + id + "/verification", { method: "PATCH", body: JSON.stringify({ status }) });
+      setDetail(changed.driver);
+      const [list, summary] = await Promise.all([adminApi(listPath), adminApi("/overview")]);
+      setDrivers(list.drivers); setPages(list.pages); setOverview(summary);
+    } catch (failure) { setError(failure.message); }
     finally { setWorkingId(""); }
   }
   async function logout() {
     try { await adminApi("/logout", { method: "POST" }); }
     finally { setSignedIn(false); setDrivers([]); onLoggedOut(); }
   }
+  function chooseSection(next) { setSection(next); setDrivers([]); setPage(1); setError(""); navigate(next === "overview" ? "/admin" : "/admin/" + next); }
+  function openDriver(driver, from) { setDetail(driver); navigate(`/admin/${from}/${driver.id}`); }
+  function applySearch(event) {
+    event.preventDefault(); setPage(1); setApplied({ search: search.trim(), field, seats });
+  }
 
   if (loading) return <div className="loading-screen"><Brand /><p>Getting ready…</p></div>;
-  if (!signedIn) return <div className="admin-login-page"><div className="admin-login-card"><Brand /><span className="eyebrow">ADMIN ACCESS</span><h1>Admin Panel</h1><p>Sign in to manage Dhaka Tesla Pool.</p><form onSubmit={login}><label className="field">Admin username<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label><label className="field">Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" type="submit">Sign in <span aria-hidden="true">→</span></button></form></div></div>;
-  return <div className="admin-shell">
-    <aside className="admin-sidebar">
-      <Brand light />
-      <p className="admin-sidebar-label">ADMIN PANEL</p>
-      <nav aria-label="Admin sections">
-        <button className={section === "overview" ? "active" : ""} onClick={() => setSection("overview")}>Overview</button>
-        <button className={section === "statistics" ? "active" : ""} onClick={() => setSection("statistics")}>Statistics</button>
-        <button className={section === "drivers" ? "active" : ""} onClick={() => setSection("drivers")}>Driver review <span>{overview?.pending ?? drivers.length}</span></button>
-      </nav>
-      <button className="admin-sidebar-logout" onClick={logout}>Log out</button>
-    </aside>
-    <main className="admin-content">
-      <div className="admin-topline"><span>Admin Panel</span><span>Signed in as {username || "Admin"}</span></div>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      {section === "overview" && <><div className="admin-heading"><span className="eyebrow">OVERVIEW</span><h1>Welcome to your dashboard</h1><p>Accounts and driver approvals at a glance.</p></div><div className="admin-stats-grid"><div className="admin-stat"><span>Passengers</span><strong>{overview?.passengers ?? "—"}</strong></div><div className="admin-stat"><span>Drivers</span><strong>{overview?.drivers ?? "—"}</strong></div><div className="admin-stat"><span>Pending review</span><strong>{overview?.pending ?? "—"}</strong></div></div><section className="info-card admin-shortcut"><span className="card-kicker">DRIVER REVIEW</span><h2>{overview?.pending ?? drivers.length} waiting for review</h2><p>Check each driver's submitted licence and vehicle details.</p><button className="retry-button" onClick={() => setSection("drivers")}>Open driver review →</button></section></>}
-      {section === "statistics" && <><div className="admin-heading"><span className="eyebrow">STATISTICS</span><h1>Account statistics</h1><p>Current figures from MongoDB Atlas.</p></div><div className="admin-stats-grid">{[["Passengers", overview?.passengers], ["Drivers", overview?.drivers], ["Pending", overview?.pending], ["Approved", overview?.approved], ["Rejected", overview?.rejected]].map(([label, count]) => <div className="admin-stat" key={label}><span>{label}</span><strong>{count ?? "—"}</strong></div>)}</div></>}
-      {section === "drivers" && <><div className="admin-heading"><span className="eyebrow">DRIVER REVIEW</span><h1>Pending drivers</h1><p>Review submitted details before approving or rejecting.</p></div>{drivers.length === 0 ? <section className="info-card"><h2>No pending drivers</h2><p>New driver registrations will appear here.</p></section> : <div className="admin-review-list">{drivers.map((driver) => <section className="info-card" key={driver.id}><span className="card-kicker">PENDING REVIEW</span><h2>{driver.name}</h2><dl><div><dt>Username</dt><dd>{driver.username}</dd></div><div><dt>Email</dt><dd>{driver.email}</dd></div><div><dt>Phone</dt><dd>{driver.phone}</dd></div><div><dt>Licence</dt><dd>{driver.licenseNumber}</dd></div><div><dt>Expires</dt><dd>{new Date(driver.licenseExpiry).toLocaleDateString()}</dd></div><div><dt>Tesla</dt><dd>{driver.vehicleModel}</dd></div><div><dt>Registration</dt><dd>{driver.vehicleRegistrationNumber}</dd></div><div><dt>Area</dt><dd>{driver.serviceArea}</dd></div></dl><div className="profile-actions"><button className="retry-button" disabled={Boolean(workingId)} onClick={() => review(driver.id, "approved")}>Approve</button><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(driver.id, "rejected")}>Reject</button></div></section>)}</div>}</>}
-    </main>
-  </div>;
+  if (!signedIn) return <div className="admin-login-page"><div className="admin-login-card"><Brand /><span className="eyebrow">ADMIN ACCESS</span><h1>Admin Panel</h1><p>Sign in to manage Dhaka Tesla Pool.</p><form onSubmit={login}><label className="field">Admin username<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label><label className="field">Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" type="submit">Sign in <span aria-hidden="true">→</span></button></form>{["localhost", "127.0.0.1"].includes(window.location.hostname) && <div className="demo-logins"><span className="card-kicker">QUICK DEMO LOGIN</span><p>Only for this local development app.</p><div><button type="button" onClick={fillLocalAdmin}>Use Admin demo</button></div></div>}</div></div>;
+
+  return <div className="admin-shell"><aside className="admin-sidebar"><Brand light /><p className="admin-sidebar-label">ADMIN PANEL</p><nav aria-label="Admin sections"><button className={section === "overview" ? "active" : ""} onClick={() => chooseSection("overview")}>Overview</button><button className={section === "statistics" ? "active" : ""} onClick={() => chooseSection("statistics")}>Statistics</button><button className={section === "review" ? "active" : ""} onClick={() => chooseSection("review")}>Driver review <span>{(overview?.pending ?? 0) + (overview?.unverified ?? 0)}</span></button><button className={section === "drivers" ? "active" : ""} onClick={() => chooseSection("drivers")}>Drivers</button></nav><button className="admin-sidebar-logout" onClick={logout}>Log out</button></aside><main className="admin-content"><div className="admin-topline"><span>Admin Panel</span><span>Signed in as {username || "Admin"}</span></div>{error && <p className="form-error" role="alert">{error}</p>}
+    {section === "overview" && <><div className="admin-heading"><span className="eyebrow">OVERVIEW</span><h1>Welcome to your dashboard</h1><p>Accounts and driver approvals at a glance.</p></div><div className="admin-stats-grid">{[["Passengers", overview?.passengers], ["Drivers", overview?.drivers], ["Pending review", overview?.pending], ["Approved", overview?.approved]].map(([label, count]) => <div className="admin-stat" key={label}><span>{label}</span><strong>{count ?? "—"}</strong></div>)}</div><section className="info-card admin-shortcut"><span className="card-kicker">DRIVER REVIEW</span><h2>New driver applications</h2><p>Check details before approving or rejecting.</p><button className="retry-button" onClick={() => chooseSection("review")}>Open requests →</button></section></>}
+    {section === "statistics" && <><div className="admin-heading"><span className="eyebrow">STATISTICS</span><h1>Account statistics</h1><p>Current figures from MongoDB Atlas.</p></div><div className="admin-stats-grid">{[["Passengers", overview?.passengers], ["Drivers", overview?.drivers], ["Pending", overview?.pending], ["Approved", overview?.approved], ["Rejected", overview?.rejected]].map(([label, count]) => <div className="admin-stat" key={label}><span>{label}</span><strong>{count ?? "—"}</strong></div>)}</div></>}
+    {detailId && <><button className="retry-button admin-back" onClick={() => navigate(`/admin/${detailSection}`)}>← Back to {detailSection === "review" ? "Driver review" : "Drivers"}</button>{detail && detail.id === detailId ? <><div className="admin-detail-heading"><img src={detail.avatarUrl || "/default-avatar.svg"} alt="" /><div><span className="eyebrow">DRIVER PROFILE</span><h1>{detail.name}</h1><p>@{detail.username} · <span className={`verification-status ${detail.verificationStatus}`}>{detail.verificationStatus}</span></p></div></div><section className="info-card admin-detail-card"><h2>Personal & vehicle information</h2><DriverDetails driver={detail} /></section><section className="info-card admin-detail-card"><h2>Verification history</h2>{detail.verificationHistory?.length ? <ol className="admin-timeline">{detail.verificationHistory.map((event, index) => <li key={index}><strong>{event.status}</strong><span>{event.at ? new Date(event.at).toLocaleString() : "Date unavailable"} · {event.by || "System"}</span></li>)}</ol> : <p>No previous decision recorded.</p>}</section>{["pending", "unverified"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "approved")}>Approve driver</button><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "rejected")}>Reject driver</button></div>}{["approved", "rejected"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "unverified")}>Mark unverified</button></div>}</> : <p role={detailError ? "alert" : undefined}>{detailError || (detailLoading ? "Loading driver details…" : "Driver details unavailable.")}</p>}</>}
+    {!detailId && section === "review" && <><div className="admin-heading"><span className="eyebrow">DRIVER REVIEW</span><h1>New requests</h1><p>Open a request to check all information and make a decision.</p></div>{drivers.length === 0 ? <section className="info-card"><h2>No pending requests</h2><p>New applications will appear here.</p></section> : <div className="admin-driver-list">{drivers.map((driver) => <button className="admin-driver-line" key={driver.id} onClick={() => openDriver(driver, "review")}><img src={driver.avatarUrl || "/default-avatar.svg"} alt="" /><strong>{driver.name}</strong><span>@{driver.username}</span><span className={`admin-line-status ${driver.verificationStatus}`}>{driver.verificationStatus === "unverified" ? "Unverified" : "Pending review"}</span><span aria-hidden="true">→</span></button>)}</div>}</>}
+    {!detailId && section === "drivers" && <><div className="admin-heading"><span className="eyebrow">DRIVERS</span><h1>Drivers</h1><p>Search a driver, then open their full profile and verification history.</p></div><form className="admin-search" onSubmit={applySearch}><label className="field">Search by<select value={field} onChange={(event) => setField(event.target.value)}><option value="all">All fields</option><option value="username">Username</option><option value="licence">Licence number</option><option value="name">Name</option><option value="email">Email</option></select></label><label className="field">Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Username or licence number" /></label><label className="field">Seats<select value={seats} onChange={(event) => setSeats(event.target.value)}><option value="">All seats</option><option value="2">2 seats</option><option value="3">3 seats</option><option value="4">4 seats</option></select></label><button className="retry-button" type="submit">Search</button></form>{drivers.length === 0 ? <section className="info-card"><h2>No drivers found</h2><p>Try another search or seat filter.</p></section> : <div className="admin-driver-list">{drivers.map((driver) => <button className="admin-driver-line" key={driver.id} onClick={() => openDriver(driver, "drivers")}><img src={driver.avatarUrl || "/default-avatar.svg"} alt="" /><strong>{driver.name}</strong><span>@{driver.username}</span><span className={`admin-line-status ${driver.verificationStatus}`}>{driver.verificationStatus}</span><span aria-hidden="true">→</span></button>)}</div>}</>}
+    {["review", "drivers"].includes(section) && pages > 1 && <div className="history-pagination"><button className="retry-button" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page} of {pages}</span><button className="retry-button" disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
+  </main></div>;
 }
 
 export default function App() {
@@ -598,15 +409,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to={activeRole === "admin" ? "/admin" : activeRole === "driver" && accounts.driver ? "/driver" : activeRole === "passenger" && accounts.passenger ? "/passenger" : "/login/passenger"} replace />} />
-      <Route path="/passenger" element={activeRole === "passenger" && accounts.passenger ? <Home passenger={accounts.passenger} onLogout={loggedOut} onPassengerUpdated={(value) => updateAccount("passenger", value)} /> : <Navigate to="/" replace />} />
-      <Route path="/driver" element={activeRole === "driver" && accounts.driver ? <DriverHome driver={accounts.driver} onLogout={loggedOut} onDriverUpdated={(value) => updateAccount("driver", value)} /> : <Navigate to="/" replace />} />
+      {[["passenger", accounts.passenger], ["driver", accounts.driver]].flatMap(([role, account]) => ["dashboard", "profile", "history"].map((page) => <Route key={`${role}-${page}`} path={`/${role}${page === "dashboard" ? "" : `/${page}`}`} element={activeRole === role && account ? <RolePage role={role} account={account} page={page} Brand={Brand} onLogout={loggedOut} onUpdated={(value) => updateAccount(role, value)} /> : <Navigate to="/" replace />} />))}
       <Route path="/login" element={<Navigate to="/login/passenger" replace />} />
       <Route path="/register" element={<Navigate to="/register/passenger" replace />} />
       <Route path="/login/passenger" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="login-passenger" mode="login" role="passenger" onAuthenticated={authenticated} />} />
       <Route path="/login/driver" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="login-driver" mode="login" role="driver" onAuthenticated={authenticated} />} />
       <Route path="/register/passenger" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="register-passenger" mode="register" role="passenger" onAuthenticated={authenticated} />} />
       <Route path="/register/driver" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="register-driver" mode="register" role="driver" onAuthenticated={authenticated} />} />
-      <Route path="/admin" element={activeRole && activeRole !== "admin" ? <Navigate to="/" replace /> : <AdminPage onAuthenticated={() => authenticated("admin", null)} onLoggedOut={loggedOut} />} />
+      <Route path="/admin/*" element={activeRole && activeRole !== "admin" ? <Navigate to="/" replace /> : <AdminPage onAuthenticated={() => authenticated("admin", null)} onLoggedOut={loggedOut} />} />
       <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

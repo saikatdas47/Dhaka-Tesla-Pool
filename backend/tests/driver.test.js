@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import Driver from "../models/Driver.js";
 import Passenger from "../models/Passenger.js";
 import EmailOtp from "../models/EmailOtp.js";
+import Pool from "../models/Pool.js";
 import app from "../app.js";
 
 process.env.JWT_SECRET = "test-only-secret-longer-than-thirty-two-bytes";
@@ -22,6 +23,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     findByIdAndUpdate: Driver.findByIdAndUpdate,
     findOneAndDeleteOtp: EmailOtp.findOneAndDelete,
     passengerFindById: Passenger.findById,
+    poolExists: Pool.exists,
   };
   app.locals.databaseReady = true;
   const server = app.listen(0, "127.0.0.1");
@@ -78,6 +80,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     };
     EmailOtp.findOneAndDelete = async ({ role, email }) => role === "driver" && email === fields.email ? {} : null;
     Passenger.findById = async () => null;
+    Pool.exists = async () => false;
 
     const invalid = await request("/api/drivers/register", { method: "POST", body: JSON.stringify({ ...fields, username: "bad name" }) });
     assert.equal(invalid.response.status, 400);
@@ -143,6 +146,7 @@ test("driver signup, role-separated login, username login and protected dashboar
     Driver.findByIdAndUpdate = originals.findByIdAndUpdate;
     EmailOtp.findOneAndDelete = originals.findOneAndDeleteOtp;
     Passenger.findById = originals.passengerFindById;
+    Pool.exists = originals.poolExists;
     await new Promise((resolve) => server.close(resolve));
   }
 });

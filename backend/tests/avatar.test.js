@@ -113,6 +113,17 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     const replaced = await fetch(`${base}/api/passengers/avatar`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: replacement });
     assert.equal(replaced.status, 200);
     assert.deepEqual(calls, ["delete", "upload"]);
+
+    cloudinary.uploader.destroy = async () => ({ result: "error" });
+    const failedRemoval = await fetch(`${base}/api/passengers/avatar`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(failedRemoval.status, 502);
+    assert.ok(state.avatarUrl);
+
+    cloudinary.uploader.destroy = async () => ({ result: "ok" });
+    const removed = await fetch(`${base}/api/passengers/avatar`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(removed.status, 200);
+    assert.equal((await removed.json()).data.passenger.avatarUrl, null);
+    assert.equal(state.avatarPublicId, null);
   } finally {
     Passenger.findById = originals.findById;
     Passenger.findOneAndUpdate = originals.findOneAndUpdate;

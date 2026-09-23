@@ -21,9 +21,15 @@ const driverSchema = new mongoose.Schema(
     vehicleModel: { type: String, required: true, enum: ["Model 3", "Model Y", "Model S", "Model X"] },
     vehicleRegistrationNumber: { type: String, required: true, unique: true, trim: true, uppercase: true },
     vehicleColor: { type: String, required: true, trim: true },
-    passengerSeats: { type: Number, required: true, min: 1, max: 6 },
+    passengerSeats: { type: Number, required: true, min: 2, max: 4 },
     serviceArea: { type: String, required: true, trim: true },
-    verificationStatus: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+    availability: { type: String, enum: ["offline", "online"], default: "offline" },
+    currentArea: { type: String, default: null },
+    locationSource: { type: String, enum: ["manual", "gps"], default: "manual" },
+    locationUpdatedAt: { type: Date, default: null },
+    lastOfferAcceptedAt: { type: Date, default: null },
+    verificationStatus: { type: String, enum: ["pending", "approved", "rejected", "unverified"], default: "pending" },
+    verificationHistory: [{ status: { type: String, enum: ["pending", "approved", "rejected", "unverified"] }, at: Date, by: String }],
   },
   { timestamps: true }
 );
