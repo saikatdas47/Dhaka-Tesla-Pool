@@ -9,6 +9,7 @@ const rideRequestSchema = new mongoose.Schema({
   approximateKm: { type: Number, required: true },
   soloFarePaisa: { type: Number, required: true, min: 0 },
   pooledFarePaisa: { type: Number, required: true, min: 0 },
+  fareRule: { baseFarePaisa: Number, perKmPaisa: Number, sharedDiscountPercent: Number },
   finalFarePaisa: { type: Number, default: null },
   paymentMethod: { type: String, enum: ["cash", "teslapay"], default: null },
   paymentStatus: { type: String, enum: ["pending", "due", "paid", "cancelled"], default: null },

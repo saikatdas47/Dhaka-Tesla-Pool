@@ -1,4 +1,5 @@
 import { ApiError } from "./apiError.js";
+import { defaultFareSettings } from "../services/fareSettingsService.js";
 
 // Approximate area centres for the MVP map; these are not live GPS positions.
 export const areas = {
@@ -29,7 +30,7 @@ export function compatibleRoutes(first, second) {
   );
 }
 
-export function fareQuote(pickupArea, destinationArea, seats) {
+export function fareQuote(pickupArea, destinationArea, seats, settings = defaultFareSettings) {
   requireArea(pickupArea);
   requireArea(destinationArea);
   if (pickupArea === destinationArea) throw new ApiError(400, "Pickup and destination must differ.");
@@ -37,6 +38,6 @@ export function fareQuote(pickupArea, destinationArea, seats) {
   const [aLat, aLng] = areas[pickupArea];
   const [bLat, bLng] = areas[destinationArea];
   const approximateKm = Math.max(1, Math.round(Math.hypot((aLat - bLat) * 111, (aLng - bLng) * 102)));
-  const soloFarePaisa = (5000 + approximateKm * 2000) * seats;
-  return { approximateKm, soloFarePaisa, pooledFarePaisa: Math.round(soloFarePaisa * 0.8) };
+  const soloFarePaisa = (settings.baseFarePaisa + approximateKm * settings.perKmPaisa) * seats;
+  return { approximateKm, soloFarePaisa, pooledFarePaisa: Math.round(soloFarePaisa * (100 - settings.sharedDiscountPercent) / 100), fareRule: { baseFarePaisa: settings.baseFarePaisa, perKmPaisa: settings.perKmPaisa, sharedDiscountPercent: settings.sharedDiscountPercent } };
 }

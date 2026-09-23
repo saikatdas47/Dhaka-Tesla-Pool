@@ -6,6 +6,7 @@ import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { areas, compatibleRoutes, fareQuote, requireArea } from "../utils/rideRules.js";
+import { getFareSettings } from "../services/fareSettingsService.js";
 
 const activeStatuses = ["MATCHED", "DRIVER_ARRIVED", "STARTED"];
 
@@ -20,6 +21,7 @@ function publicRide(ride) {
     approximateKm: ride.approximateKm,
     soloFarePaisa: ride.soloFarePaisa,
     pooledFarePaisa: ride.pooledFarePaisa,
+    fareRule: ride.fareRule || null,
     currentFarePaisa: ride.finalFarePaisa ?? (shared ? ride.pooledFarePaisa : ride.soloFarePaisa),
     paymentMethod: ride.paymentMethod || "not recorded",
     paymentStatus: ride.paymentStatus || "not recorded",
@@ -118,7 +120,7 @@ export const getRideConfig = asyncHandler(async (_request, response) => {
 export const quoteRide = asyncHandler(async (request, response) => {
   const pickupArea = requireArea(request.body?.pickupArea);
   const destinationArea = requireArea(request.body?.destinationArea);
-  const quote = fareQuote(pickupArea, destinationArea, Number(request.body?.seats));
+  const quote = fareQuote(pickupArea, destinationArea, Number(request.body?.seats), await getFareSettings());
   response.json(new ApiResponse(200, quote, "Estimated fare. Final fare depends on pool membership."));
 });
 
@@ -126,7 +128,7 @@ export const createRide = asyncHandler(async (request, response) => {
   const pickupArea = requireArea(request.body?.pickupArea);
   const destinationArea = requireArea(request.body?.destinationArea);
   const seats = Number(request.body?.seats);
-  const quote = fareQuote(pickupArea, destinationArea, seats);
+  const quote = fareQuote(pickupArea, destinationArea, seats, await getFareSettings());
   const paymentMethod = request.body?.paymentMethod || "cash";
   if (!["cash", "teslapay"].includes(paymentMethod)) throw new ApiError(400, "Choose Cash or simulated TeslaPay.");
   const active = await RideRequest.exists({ passenger: request.passenger.id, status: { $in: ["REQUESTED", ...activeStatuses] } });

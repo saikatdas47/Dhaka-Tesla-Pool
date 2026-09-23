@@ -157,6 +157,9 @@ h1, h2, p { margin-top: 0; }
 .admin-heading { margin-bottom: 24px; }
 .admin-review-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
 .admin-search { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) minmax(150px, 1fr) 120px; align-items: end; gap: 12px; margin-bottom: 22px; }
+.admin-search-passengers { grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) 120px; }
+.admin-fare-card { max-width: 560px; }
+.admin-fare-card .field { margin-bottom: 16px; }
 .admin-search .field { min-width: 0; margin-bottom: 0; }
 .admin-search .retry-button { height: 51px; margin: 0; font-size: 13px; }
 .admin-driver-list { display: grid; gap: 12px; }

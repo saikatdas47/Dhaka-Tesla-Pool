@@ -101,9 +101,18 @@ test("Atlas ride flow: online offers, pooled seats, concurrent last seat, lifecy
     assert.equal(oldRide.driverName, "Jashim");
     assert.equal((await call("driver", driver, "/rides/driver/history")).data.pools[0].members[0].passengerName, "Nusrat");
 
+    const savedRates = await fetch(`${base}/admin/fare-settings`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: adminCookie }, body: JSON.stringify({ baseFarePaisa: 6000, perKmPaisa: 2500, sharedDiscountPercent: 25 }) });
+    assert.equal(savedRates.status, 200);
+    const newQuote = (await call("passenger", passengers[0], "/rides/quote", "POST", { pickupArea: "Banani", destinationArea: "Mohakhali", seats: 1 })).data;
+    assert.equal(newQuote.soloFarePaisa, 11000);
+    assert.equal(newQuote.pooledFarePaisa, 8250);
+    assert.equal((await call("passenger", passengers[0], "/rides/mine?view=history")).data.rides[0].currentFarePaisa, 7200);
+
     assert.equal((await adminStatus("approved")).status, 200);
     assert.equal((await call("driver", driver, "/drivers/availability", "PATCH", { availability: "online", currentArea: "Banani" })).status, 200);
     const nextA = await call("passenger", passengers[0], "/rides/requests", "POST", { pickupArea: "Banani", destinationArea: "Mohakhali", seats: 1 });
+    assert.equal(nextA.data.ride.soloFarePaisa, 11000);
+    assert.equal(nextA.data.ride.fareRule.sharedDiscountPercent, 25);
     assert.equal((await call("driver", driver, `/rides/requests/${nextA.data.ride.id}/accept`, "POST")).status, 200);
     const nextB = await call("passenger", passengers[losingIndex], "/rides/requests", "POST", { pickupArea: "Banani", destinationArea: "Gulshan 1", seats: 1 });
     assert.equal(nextB.status, 201);
