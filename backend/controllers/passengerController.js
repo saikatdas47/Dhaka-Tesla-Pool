@@ -1,104 +1,127 @@
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import Passenger from "../models/Passenger.js";
-
-const cookieName = "tesla_pool_session";
-const cookieOptions = {
-  httpOnly: true,
-  sameSite: "lax",
-  secure: process.env.COOKIE_SECURE === "true",
-  path: "/",
-};
+import { isRealImage, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
+import { ApiError } from "../utils/apiError.js";
+import { ApiResponse } from "../utils/apiResponse.js";
+import asyncHandler from "../utils/asyncHandler.js";
+import { cleanAccountInput, cleanLoginInput } from "../utils/authInput.js";
+import { startSession, refreshSession, endSession } from "../services/sessionService.js";
+import { consumeRegistrationToken } from "../services/emailOtpService.js";
+import { demoAccountsEnabled } from "../config/demoAccounts.js";
 
 function publicPassenger(passenger) {
-  return { id: passenger.id, name: passenger.name, email: passenger.email };
+  return {
+    id: passenger.id,
+    name: passenger.name,
+    username: passenger.username || null,
+    email: passenger.email,
+    avatarUrl: passenger.avatarUrl || null,
+    avatarPending: Boolean(passenger.pendingAvatarFilename),
+  };
 }
 
-function setSession(response, passenger) {
-  const token = jwt.sign({ sub: passenger.id }, process.env.JWT_SECRET, {
-    algorithm: "HS256",
-    expiresIn: "7d",
-  });
-  response.cookie(cookieName, token, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
-}
+export const registerPassenger = asyncHandler(async (request, response) => {
+  const { name, username, email, password } = cleanAccountInput(request.body);
+  if (await Passenger.exists({ $or: [{ email }, { username }] })) throw new ApiError(409, "Passenger email or username is already in use.");
 
-async function currentPassenger(request) {
-  const token = request.cookies?.[cookieName];
-  if (!token) return null;
-  let payload;
+  await consumeRegistrationToken("passenger", email, request.body?.registrationToken);
+
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
-  } catch {
-    return null;
-  }
-  return Passenger.findById(payload.sub);
-}
-
-export async function registerPassenger(request, response, next) {
-  try {
-    const { name, email, password } = request.body ?? {};
-    const normalizedName = typeof name === "string" ? name.trim() : "";
-    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
-
-    if (normalizedName.length < 2 || normalizedName.length > 80) {
-      return response.status(400).json({ message: "Name must be 2 to 80 characters." });
-    }
-    if (normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      return response.status(400).json({ message: "Enter a valid email address." });
-    }
-    if (typeof password !== "string" || password.length < 8 || Buffer.byteLength(password) > 72) {
-      return response.status(400).json({ message: "Password must be at least 8 characters and at most 72 bytes." });
-    }
-
-    const existing = await Passenger.exists({ email: normalizedEmail });
-    if (existing) {
-      return response.status(409).json({ message: "An account with this email already exists." });
-    }
-
     const passwordHash = await bcrypt.hash(password, 12);
-    const passenger = await Passenger.create({ name: normalizedName, email: normalizedEmail, passwordHash });
-    setSession(response, passenger);
-    response.status(201).json({ passenger: publicPassenger(passenger) });
+    const passenger = await Passenger.create({ name, username, email, passwordHash, emailVerifiedAt: new Date() });
+    const accessToken = await startSession(Passenger, passenger, "passenger", response);
+    response.status(201).json(new ApiResponse(201, { passenger: publicPassenger(passenger), accessToken }, "Passenger registered successfully."));
   } catch (error) {
-    if (error.code === 11000) {
-      return response.status(409).json({ message: "An account with this email already exists." });
-    }
-    next(error);
+    if (error.code === 11000) throw new ApiError(409, "Passenger email or username is already in use.");
+    throw error;
   }
-}
+});
 
-export async function loginPassenger(request, response, next) {
+export const loginPassenger = asyncHandler(async (request, response) => {
+  const { identity, password } = cleanLoginInput(request.body);
+  const passenger = await Passenger.findOne({ $or: [{ email: identity }, { username: identity }] }).select("+passwordHash");
+  if (!passenger || (passenger.isDemo && !demoAccountsEnabled()) || !(await passenger.comparePassword(password))) throw new ApiError(401, "Email/username or password is incorrect.");
+
+  const accessToken = await startSession(Passenger, passenger, "passenger", response);
+  response.json(new ApiResponse(200, { passenger: publicPassenger(passenger), accessToken }, "Passenger logged in successfully."));
+});
+
+export const refreshPassengerToken = asyncHandler(async (request, response) => {
+  const accessToken = await refreshSession(Passenger, "passenger", request, response);
+  response.json(new ApiResponse(200, { accessToken }, "Access token refreshed."));
+});
+
+export const getCurrentPassenger = asyncHandler(async (request, response) => {
+  response.json(new ApiResponse(200, { passenger: publicPassenger(request.passenger) }, "Current passenger fetched successfully."));
+});
+
+export const setPassengerUsername = asyncHandler(async (request, response) => {
+  if (request.passenger.username) throw new ApiError(409, "Username is already set.");
+  const username = typeof request.body?.username === "string" ? request.body.username.trim().toLowerCase() : "";
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) throw new ApiError(400, "Username must be 3 to 30 lowercase letters, numbers, or underscores.");
+
   try {
-    const { email, password } = request.body ?? {};
-    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
-    if (!normalizedEmail || typeof password !== "string") {
-      return response.status(400).json({ message: "Email and password are required." });
-    }
-
-    const passenger = await Passenger.findOne({ email: normalizedEmail }).select("+passwordHash");
-    const valid = passenger && (await bcrypt.compare(password, passenger.passwordHash));
-    if (!valid) {
-      return response.status(401).json({ message: "Email or password is incorrect." });
-    }
-
-    setSession(response, passenger);
-    response.json({ passenger: publicPassenger(passenger) });
+    const passenger = await Passenger.findOneAndUpdate(
+      { _id: request.passenger.id, username: { $exists: false } },
+      { $set: { username } },
+      { new: true, runValidators: true }
+    );
+    if (!passenger) throw new ApiError(409, "Username is already set.");
+    response.json(new ApiResponse(200, { passenger: publicPassenger(passenger) }, "Username saved successfully."));
   } catch (error) {
-    next(error);
+    if (error.code === 11000) throw new ApiError(409, "Passenger username is already in use.");
+    throw error;
   }
-}
+});
 
-export async function getCurrentPassenger(request, response, next) {
+export const logoutPassenger = asyncHandler(async (request, response) => {
+  await endSession(Passenger, "passenger", request, response);
+  response.json(new ApiResponse(200, null, "Logged out."));
+});
+
+export const uploadPassengerAvatar = asyncHandler(async (request, response) => {
+  if (!request.file) throw new ApiError(400, "Choose an image in the avatar field.");
+
+  const filename = request.file.filename;
+  if (!(await isRealImage(request.file.path, request.file.mimetype))) {
+    await removeLocalAvatar(filename);
+    throw new ApiError(400, "The file content is not a valid image.");
+  }
+
+  // Only one upload can claim the pending slot.
+  const passenger = await Passenger.findOneAndUpdate(
+    { _id: request.passenger.id, pendingAvatarFilename: null },
+    { $set: { pendingAvatarFilename: filename } },
+    { new: true }
+  );
+  if (!passenger) {
+    await removeLocalAvatar(filename);
+    throw new ApiError(409, "A previous image is waiting for retry. Retry it first.");
+  }
+
   try {
-    const passenger = await currentPassenger(request);
-    if (!passenger) return response.status(401).json({ message: "Please log in." });
-    response.json({ passenger: publicPassenger(passenger) });
-  } catch (error) {
-    next(error);
+    const updated = await sendPendingAvatarToCloudinary(passenger);
+    response.json(new ApiResponse(200, { passenger: publicPassenger(updated) }, "Avatar updated successfully."));
+  } catch {
+    // Keep the local file and database filename so the passenger can retry.
+    response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Cloudinary upload failed. Your image is saved locally; try again."));
   }
-}
+});
 
-export function logoutPassenger(_request, response) {
-  response.clearCookie(cookieName, cookieOptions);
-  response.json({ message: "Logged out." });
-}
+export const retryPassengerAvatar = asyncHandler(async (request, response) => {
+  if (!request.passenger.pendingAvatarFilename) throw new ApiError(409, "No image is waiting for retry.");
+
+  try {
+    const updated = await sendPendingAvatarToCloudinary(request.passenger);
+    response.json(new ApiResponse(200, { passenger: publicPassenger(updated) }, "Avatar updated successfully."));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      await Passenger.updateOne(
+        { _id: request.passenger.id, pendingAvatarFilename: request.passenger.pendingAvatarFilename },
+        { $set: { pendingAvatarFilename: null } }
+      );
+      throw new ApiError(410, "Saved image is no longer available. Choose it again.");
+    }
+    response.status(502).json(new ApiResponse(502, { avatarPending: true }, "Upload still failed. Your image remains saved for another retry."));
+  }
+});

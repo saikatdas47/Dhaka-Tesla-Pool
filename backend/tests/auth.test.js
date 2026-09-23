@@ -1,26 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import express from "express";
-import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import Passenger from "../models/Passenger.js";
-import passengerRoutes from "../routes/passengerRoutes.js";
+import EmailOtp from "../models/EmailOtp.js";
+import app from "../app.js";
 
 process.env.JWT_SECRET = "test-only-secret-longer-than-thirty-two-bytes";
+process.env.AccessTokenSecret = "test-access-secret-longer-than-thirty-two-bytes";
+process.env.RefreshTokenSecret = "test-refresh-secret-longer-than-thirty-two-bytes";
 
 function testServer() {
-  const app = express();
-  app.use(express.json());
-  app.use(cookieParser());
-  app.use("/api/passengers", passengerRoutes);
+  app.locals.databaseReady = true;
   return app.listen(0, "127.0.0.1");
 }
 
 async function request(server, path, options = {}) {
   const address = server.address();
   const response = await fetch(`http://127.0.0.1:${address.port}/api/passengers${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
+    headers: { "Content-Type": "application/json", ...options.headers },
   });
   return { response, body: await response.json() };
 }
@@ -31,28 +30,47 @@ test("registration, duplicate account, login, session, and logout", async () => 
     create: Passenger.create,
     findOne: Passenger.findOne,
     findById: Passenger.findById,
+    findOneAndUpdate: Passenger.findOneAndUpdate,
+    updateOne: Passenger.updateOne,
+    findOneAndDeleteOtp: EmailOtp.findOneAndDelete,
   };
   const server = testServer();
   await new Promise((resolve) => server.once("listening", resolve));
-  const fakePassenger = {
-    id: "507f1f77bcf86cd799439011",
+  const fakePassenger = new Passenger({
+    _id: "507f1f77bcf86cd799439011",
     name: "Nusrat Rahman",
+    username: "nusrat_rahman",
     email: "nusrat@example.com",
-  };
+  });
   let savedHash;
   let savedEmail;
+  let refreshTokenHash;
 
   try {
-    Passenger.exists = async ({ email }) => email === savedEmail;
+    Passenger.exists = async ({ $or }) => Boolean(savedEmail) && $or.some((item) => item.email === savedEmail || item.username === fakePassenger.username);
     Passenger.create = async (data) => {
       savedEmail = data.email;
       savedHash = data.passwordHash;
       return fakePassenger;
     };
-    Passenger.findOne = ({ email }) => ({
-      select: async () => email === savedEmail ? { ...fakePassenger, passwordHash: savedHash } : null,
+    Passenger.findOne = ({ $or }) => ({
+      select: async () => Boolean(savedEmail) && $or.some((item) => item.email === savedEmail || item.username === fakePassenger.username) ? new Passenger({ ...fakePassenger.toObject(), passwordHash: savedHash }) : null,
     });
     Passenger.findById = async (id) => id === fakePassenger.id ? fakePassenger : null;
+    Passenger.updateOne = async (_filter, update) => {
+      refreshTokenHash = update.$set.refreshTokenHash;
+      return { matchedCount: 1 };
+    };
+    Passenger.findOneAndUpdate = async (filter, update) => {
+      if (filter.refreshTokenHash) {
+        if (filter.refreshTokenHash !== refreshTokenHash) return null;
+        refreshTokenHash = update.$set.refreshTokenHash;
+        return fakePassenger;
+      }
+      fakePassenger.username = update.$set.username;
+      return fakePassenger;
+    };
+    EmailOtp.findOneAndDelete = async ({ role, email }) => role === "passenger" && email === fakePassenger.email ? {} : null;
 
     const invalid = await request(server, "/register", {
       method: "POST",
@@ -62,21 +80,22 @@ test("registration, duplicate account, login, session, and logout", async () => 
 
     const registered = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, email: "NUSRAT@example.com", password: "strong-password" }),
+      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: "NUSRAT@example.com", password: "strong-password", registrationToken: "a".repeat(64) }),
     });
     assert.equal(registered.response.status, 201);
-    assert.equal(registered.body.passenger.email, fakePassenger.email);
-    assert.equal(registered.body.passenger.passwordHash, undefined);
+    assert.equal(registered.body.data.passenger.email, fakePassenger.email);
+    assert.equal(registered.body.data.passenger.passwordHash, undefined);
     assert.equal(savedEmail, fakePassenger.email);
     assert.notEqual(savedHash, "strong-password");
     assert.equal(await bcrypt.compare("strong-password", savedHash), true);
     const registerCookie = registered.response.headers.get("set-cookie");
     assert.match(registerCookie, /HttpOnly/);
     assert.match(registerCookie, /SameSite=Lax/);
+    assert.ok(registered.body.data.accessToken);
 
     const duplicate = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, email: fakePassenger.email, password: "strong-password" }),
+      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: fakePassenger.email, password: "strong-password" }),
     });
     assert.equal(duplicate.response.status, 409);
 
@@ -91,19 +110,55 @@ test("registration, duplicate account, login, session, and logout", async () => 
       body: JSON.stringify({ email: fakePassenger.email, password: "strong-password" }),
     });
     assert.equal(loggedIn.response.status, 200);
+    const usernameLogin = await request(server, "/login", {
+      method: "POST",
+      body: JSON.stringify({ identity: fakePassenger.username, password: "strong-password" }),
+    });
+    assert.equal(usernameLogin.response.status, 200);
+    const latestCookies = usernameLogin.response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+    const refreshCookie = latestCookies.split("; ").find((value) => value.startsWith("tesla_pool_passenger_refresh="));
+    const refreshAsAccess = await request(server, "/me", { headers: { Authorization: `Bearer ${refreshCookie.split("=")[1]}` } });
+    assert.equal(refreshAsAccess.response.status, 401);
+    const refreshed = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: latestCookies } });
+    assert.equal(refreshed.response.status, 200);
+    assert.ok(refreshed.body.data.accessToken);
+    const rotatedCookies = refreshed.response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+    const reused = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: latestCookies } });
+    assert.equal(reused.response.status, 401);
     const sessionCookie = loggedIn.response.headers.get("set-cookie").split(";")[0];
 
     const anonymous = await request(server, "/me");
     assert.equal(anonymous.response.status, 401);
     const current = await request(server, "/me", { headers: { Cookie: sessionCookie } });
     assert.equal(current.response.status, 200);
-    assert.equal(current.body.passenger.name, fakePassenger.name);
+    assert.equal(current.body.data.passenger.name, fakePassenger.name);
 
-    const loggedOut = await request(server, "/logout", { method: "POST", headers: { Cookie: sessionCookie } });
+    fakePassenger.username = undefined; // Simulate an account created before usernames existed.
+    const legacyUsername = await request(server, "/username", {
+      method: "PATCH",
+      headers: { Cookie: sessionCookie },
+      body: JSON.stringify({ username: "legacy_rider" }),
+    });
+    assert.equal(legacyUsername.response.status, 200);
+    assert.equal(legacyUsername.body.data.passenger.username, "legacy_rider");
+
+    const expiredToken = jwt.sign({ sub: fakePassenger.id }, process.env.JWT_SECRET, { expiresIn: -1 });
+    const expired = await request(server, "/me", { headers: { Authorization: `Bearer ${expiredToken}` } });
+    assert.equal(expired.response.status, 401);
+    assert.match(expired.body.message, /expired/i);
+
+    const driverToken = jwt.sign({ sub: fakePassenger.id, role: "driver" }, process.env.JWT_SECRET);
+    const wrongRole = await request(server, "/me", { headers: { Authorization: `Bearer ${driverToken}` } });
+    assert.equal(wrongRole.response.status, 401);
+
+    const loggedOut = await request(server, "/logout", { method: "POST", headers: { Cookie: rotatedCookies } });
     assert.equal(loggedOut.response.status, 200);
     assert.match(loggedOut.response.headers.get("set-cookie"), /Expires=Thu, 01 Jan 1970/);
+    const revoked = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: rotatedCookies } });
+    assert.equal(revoked.response.status, 401);
   } finally {
     Object.assign(Passenger, originals);
+    EmailOtp.findOneAndDelete = originals.findOneAndDeleteOtp;
     await new Promise((resolve) => server.close(resolve));
   }
 });

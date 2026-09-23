@@ -2,15 +2,25 @@ import { Router } from "express";
 import {
   registerPassenger,
   loginPassenger,
+  refreshPassengerToken,
   getCurrentPassenger,
+  setPassengerUsername,
   logoutPassenger,
+  uploadPassengerAvatar,
+  retryPassengerAvatar,
 } from "../controllers/passengerController.js";
+import { verifyPassenger, requireNoPendingAvatar } from "../middlewares/auth.middleware.js";
+import { uploadAvatarFile } from "../middlewares/multer.middleware.js";
 
 const router = Router();
 
-router.post("/register", registerPassenger);
-router.post("/login", loginPassenger);
-router.get("/me", getCurrentPassenger);
-router.post("/logout", logoutPassenger);
+router.route("/register").post(registerPassenger);
+router.route("/login").post(loginPassenger);
+router.route("/refresh-token").post(refreshPassengerToken);
+router.route("/me").get(verifyPassenger, getCurrentPassenger);
+router.route("/username").patch(verifyPassenger, setPassengerUsername);
+router.route("/logout").post(logoutPassenger);
+router.route("/avatar").post(verifyPassenger, requireNoPendingAvatar, uploadAvatarFile, uploadPassengerAvatar);
+router.route("/avatar/retry").post(verifyPassenger, retryPassengerAvatar);
 
 export default router;
