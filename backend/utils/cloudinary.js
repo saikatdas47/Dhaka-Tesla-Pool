@@ -12,12 +12,12 @@ function configureCloudinary() {
   });
 }
 
-export async function uploadOnCloudinary(localFilePath, passengerId) {
+export async function uploadOnCloudinary(localFilePath, accountId, role = "passenger") {
   configureCloudinary();
   // The caller removes the local file only after Cloudinary and MongoDB succeed.
   return cloudinary.uploader.upload(localFilePath, {
-    folder: "dhaka-tesla-pool/passengers",
-    public_id: passengerId,
+    folder: `dhaka-tesla-pool/${role === "driver" ? "drivers" : "passengers"}`,
+    public_id: accountId,
     overwrite: true,
     invalidate: true,
     resource_type: "image",

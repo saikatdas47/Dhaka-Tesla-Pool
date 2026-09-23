@@ -186,7 +186,7 @@ function AuthPage({ mode, role, onAuthenticated }) {
             {isRegister && (
               <>
                 <label className="field">Full name
-                  <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Nusrat Rahman" autoComplete="name" minLength="2" maxLength="80" required />
+                  <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Saikat Das" autoComplete="name" minLength="2" maxLength="80" required />
                 </label>
                 <label className="field">Username
                   <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="e.g. nusrat_rahman" minLength="3" maxLength="30" pattern="[A-Za-z0-9_]+" autoComplete="username" required />

@@ -23,10 +23,10 @@ async function createOrUpdateDemo(Model, role, profile) {
 
   const passwordHash = await bcrypt.hash(password, 12);
   if (existing) {
-    await Model.updateOne({ _id: existing.id, isDemo: true }, { $set: { passwordHash, emailVerifiedAt: new Date() } });
+    await Model.updateOne({ _id: existing.id, isDemo: true }, { $set: { name: role === "passenger" ? "Passenger 1" : "Driver 1", passwordHash, emailVerifiedAt: new Date() } });
   } else {
     await Model.create({
-      name: role === "passenger" ? "Demo Passenger" : "Demo Driver",
+      name: role === "passenger" ? "Passenger 1" : "Driver 1",
       username,
       email: `${username}@dhaka-tesla-pool.invalid`,
       passwordHash,

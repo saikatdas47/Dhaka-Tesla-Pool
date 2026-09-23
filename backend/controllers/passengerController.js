@@ -55,6 +55,13 @@ export const getCurrentPassenger = asyncHandler(async (request, response) => {
   response.json(new ApiResponse(200, { passenger: publicPassenger(request.passenger) }, "Current passenger fetched successfully."));
 });
 
+export const updatePassengerProfile = asyncHandler(async (request, response) => {
+  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+  if (name.length < 2 || name.length > 80) throw new ApiError(400, "Name must be 2 to 80 characters.");
+  const passenger = await Passenger.findByIdAndUpdate(request.passenger.id, { $set: { name } }, { returnDocument: "after", runValidators: true });
+  response.json(new ApiResponse(200, { passenger: publicPassenger(passenger) }, "Passenger profile updated successfully."));
+});
+
 export const setPassengerUsername = asyncHandler(async (request, response) => {
   if (request.passenger.username) throw new ApiError(409, "Username is already set.");
   const username = typeof request.body?.username === "string" ? request.body.username.trim().toLowerCase() : "";
@@ -100,7 +107,7 @@ export const uploadPassengerAvatar = asyncHandler(async (request, response) => {
   }
 
   try {
-    const updated = await sendPendingAvatarToCloudinary(passenger);
+    const updated = await sendPendingAvatarToCloudinary(passenger, Passenger, "passenger");
     response.json(new ApiResponse(200, { passenger: publicPassenger(updated) }, "Avatar updated successfully."));
   } catch {
     // Keep the local file and database filename so the passenger can retry.
@@ -112,7 +119,7 @@ export const retryPassengerAvatar = asyncHandler(async (request, response) => {
   if (!request.passenger.pendingAvatarFilename) throw new ApiError(409, "No image is waiting for retry.");
 
   try {
-    const updated = await sendPendingAvatarToCloudinary(request.passenger);
+    const updated = await sendPendingAvatarToCloudinary(request.passenger, Passenger, "passenger");
     response.json(new ApiResponse(200, { passenger: publicPassenger(updated) }, "Avatar updated successfully."));
   } catch (error) {
     if (error.code === "ENOENT") {

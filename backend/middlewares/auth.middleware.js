@@ -39,7 +39,7 @@ export const verifyDriver = asyncHandler(async (request, _response, next) => {
 
 // Stop a second upload while a failed one is waiting for retry.
 export function requireNoPendingAvatar(request, response, next) {
-  if (request.passenger.pendingAvatarFilename) {
+  if ((request.passenger || request.driver)?.pendingAvatarFilename) {
     return next(new ApiError(409, "A previous image is waiting for retry. Retry it first."));
   }
   next();

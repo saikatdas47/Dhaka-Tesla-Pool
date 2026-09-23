@@ -7,6 +7,7 @@ import { cleanAccountInput, cleanLoginInput } from "../utils/authInput.js";
 import { startSession, refreshSession, endSession } from "../services/sessionService.js";
 import { consumeRegistrationToken } from "../services/emailOtpService.js";
 import { demoAccountsEnabled } from "../config/demoAccounts.js";
+import { isRealImage, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
 
 function publicDriver(driver) {
   return {
@@ -23,6 +24,8 @@ function publicDriver(driver) {
     passengerSeats: driver.passengerSeats,
     serviceArea: driver.serviceArea,
     verificationStatus: driver.verificationStatus,
+    avatarUrl: driver.avatarUrl || null,
+    avatarPending: Boolean(driver.pendingAvatarFilename),
   };
 }
 
@@ -87,6 +90,36 @@ export const refreshDriverToken = asyncHandler(async (request, response) => {
 
 export const getCurrentDriver = asyncHandler(async (request, response) => {
   response.json(new ApiResponse(200, { driver: publicDriver(request.driver) }, "Current driver fetched successfully."));
+});
+
+export const updateDriverProfile = asyncHandler(async (request, response) => {
+  const allowed = ["name", "phone", "licenseNumber", "licenseExpiry", "vehicleModel", "vehicleRegistrationNumber", "vehicleColor", "passengerSeats", "serviceArea"];
+  const changes = Object.fromEntries(Object.entries(request.body || {}).filter(([key]) => allowed.includes(key)));
+  if (!Object.keys(changes).length) throw new ApiError(400, "No editable profile fields were provided.");
+  const current = request.driver;
+  const name = changes.name === undefined ? current.name : String(changes.name).trim();
+  if (name.length < 2 || name.length > 80) throw new ApiError(400, "Name must be 2 to 80 characters.");
+  const details = cleanDriverInput({
+    phone: current.phone,
+    licenseNumber: current.licenseNumber,
+    licenseExpiry: new Date(current.licenseExpiry.getTime() + 6 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    vehicleModel: current.vehicleModel,
+    vehicleRegistrationNumber: current.vehicleRegistrationNumber,
+    vehicleColor: current.vehicleColor,
+    passengerSeats: current.passengerSeats,
+    serviceArea: current.serviceArea,
+    ...changes,
+  });
+  const verificationChanged = details.licenseNumber !== current.licenseNumber || details.licenseExpiry.getTime() !== current.licenseExpiry.getTime() || details.vehicleRegistrationNumber !== current.vehicleRegistrationNumber;
+  try {
+    const driver = await Driver.findByIdAndUpdate(current.id, {
+      $set: { name, ...details, ...(verificationChanged ? { verificationStatus: "pending" } : {}) },
+    }, { returnDocument: "after", runValidators: true });
+    response.json(new ApiResponse(200, { driver: publicDriver(driver) }, "Driver profile updated successfully."));
+  } catch (error) {
+    if (error.code === 11000) throw new ApiError(409, "Driver licence or vehicle registration is already in use.");
+    throw error;
+  }
 });
 
 export const logoutDriver = asyncHandler(async (request, response) => {

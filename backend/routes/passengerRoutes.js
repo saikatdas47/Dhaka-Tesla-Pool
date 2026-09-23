@@ -4,6 +4,7 @@ import {
   loginPassenger,
   refreshPassengerToken,
   getCurrentPassenger,
+  updatePassengerProfile,
   setPassengerUsername,
   logoutPassenger,
   uploadPassengerAvatar,
@@ -17,7 +18,7 @@ const router = Router();
 router.route("/register").post(registerPassenger);
 router.route("/login").post(loginPassenger);
 router.route("/refresh-token").post(refreshPassengerToken);
-router.route("/me").get(verifyPassenger, getCurrentPassenger);
+router.route("/me").get(verifyPassenger, getCurrentPassenger).patch(verifyPassenger, updatePassengerProfile);
 router.route("/username").patch(verifyPassenger, setPassengerUsername);
 router.route("/logout").post(logoutPassenger);
 router.route("/avatar").post(verifyPassenger, requireNoPendingAvatar, uploadAvatarFile, uploadPassengerAvatar);
