@@ -1,0 +1,29 @@
+flow-chart
+direction right
+typeface clean
+styleMode plain
+colorMode pastel
+
+Passenger [color: blue]
+Driver [color: green]
+Admin [color: orange]
+
+"Docker application" [color: blue] {
+  "React SPA" [color: blue]
+  "Express API" [color: green]
+}
+
+"MongoDB Atlas" [shape: cylinder, color: green]
+Cloudinary [color: purple]
+"Email SMTP" [color: orange]
+
+Passenger > "React SPA": request ride and view own history
+Driver > "React SPA": availability and assigned pool
+Admin > "React SPA": verification and fare settings
+"React SPA" > "Express API": role-protected HTTP API
+"Express API" > "MongoDB Atlas": accounts, fares, rides, pools, OTP
+"Express API" > Cloudinary: profile photos
+"Express API" > "Email SMTP": registration OTP
+
+// Current MVP: one Docker app container; Atlas, Cloudinary and SMTP are external.
+// No live GPS, real payment gateway or route optimization.

@@ -2,6 +2,8 @@
 
 Current scope: Passenger and Driver accounts, email OTP, protected dashboards, profile photos, manual driver approval, area-based ride pooling, and simulated payment records. The React frontend and Express API are served from one Docker container; MongoDB Atlas stores accounts, ride requests, and pools.
 
+The agreed completion contract is [FINAL_MVP_DESIGN.md](./FINAL_MVP_DESIGN.md). For the overall architecture and lifecycle, see [SYSTEM_DESIGN.md](./SYSTEM_DESIGN.md) and [systemArcitecture.drawio](./systemArcitecture.drawio). For the separate field-level MongoDB model, indexes, references and consistency rules, see [DATA_MODEL.md](./DATA_MODEL.md) and [dataModeling.drawio](./dataModeling.drawio). Eraser.io versions are the compact six-collection [dataModeling.eraserdiagram](./dataModeling.eraserdiagram), the full-field [dataModeling.detailed.eraserdiagram](./dataModeling.detailed.eraserdiagram), and [systemArcitecture.eraserdiagram](./systemArcitecture.eraserdiagram).
+
 ## Ride MVP design
 
 The driver has **2–4 passenger seats** and starts offline. An admin-approved driver chooses a current Dhaka area and goes online; only then do requests from that pickup area appear. Passengers see available online drivers on a schematic area map. The blue ring on an active ride shows the assigned driver's **last manually selected area**, not live GPS. The UI refreshes every 10 seconds. No GPS permission or map API is used.

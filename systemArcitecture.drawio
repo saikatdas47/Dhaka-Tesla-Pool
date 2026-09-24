@@ -1,9 +1,163 @@
-<mxfile host="Electron">
-  <diagram name="Page-1" id="MZ7dFSuxTmjRNNaCSg1k">
-    <mxGraphModel dx="934" dy="732" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+<mxfile host="Electron" agent="Codex" pages="3">
+  <diagram name="01 System overview" id="system-overview">
+    <mxGraphModel dx="2076" dy="1627" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="a-title" parent="1" style="text;html=1;align=left;fontSize=27;fontStyle=1;fontColor=#173A3B;" value="DHAKA TESLA POOL — SYSTEM OVERVIEW" vertex="1">
+          <mxGeometry height="55" width="1400" x="45" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="a-passenger" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F2FB;strokeColor=#4F88B5;fontColor=#183D5C;fontSize=16;spacing=14;" value="PASSENGER&#xa;Sign in and request ride&#xa;Own fare, status and history" vertex="1">
+          <mxGeometry height="145" width="255" x="45" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="a-driver" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=16;spacing=14;" value="DRIVER&#xa;Approved → online&#xa;Accept and advance pool" vertex="1">
+          <mxGeometry height="145" width="255" x="45" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="a-admin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2DD;strokeColor=#D39A45;fontColor=#624220;fontSize=16;spacing=14;" value="ADMIN&#xa;Review drivers and accounts&#xa;Set fare rates" vertex="1">
+          <mxGeometry height="145" width="255" x="45" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="a-react" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F2FB;strokeColor=#4F88B5;fontColor=#183D5C;fontSize=16;spacing=14;" value="REACT SPA&#xa;Passenger pages&#xa;Driver pages&#xa;Admin panel&#xa;Role-specific session routes" vertex="1">
+          <mxGeometry height="280" width="310" x="370" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="a-api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=16;spacing=14;" value="EXPRESS API&#xa;Auth + OTP&#xa;Ride / Pool controllers&#xa;Admin + Fare settings&#xa;Avatar upload and retry&#xa;Role middleware" vertex="1">
+          <mxGeometry height="345" width="355" x="760" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="a-mongo" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=16;spacing=14;" value="MONGODB ATLAS&#xa;Accounts, rides, pools&#xa;Fare settings, OTP&#xa;Indexes + transactions" vertex="1">
+          <mxGeometry height="145" width="310" x="1230" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="a-cloud" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1ECFA;strokeColor=#9279BB;fontColor=#513F72;fontSize=16;spacing=14;" value="CLOUDINARY&#xa;Profile photos&#xa;Local retry before success" vertex="1">
+          <mxGeometry height="130" width="310" x="1230" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="a-mail" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2DD;strokeColor=#D39A45;fontColor=#624220;fontSize=16;spacing=14;" value="EMAIL SMTP&#xa;Registration OTP" vertex="1">
+          <mxGeometry height="105" width="310" x="1170" y="565" as="geometry" />
+        </mxCell>
+        <mxCell id="a-docker" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F8F7;strokeColor=#B8C9C7;fontColor=#35525A;fontSize=15;spacing=14;" value="ONE DOCKER CONTAINER&#xa;Serves React build + Express API on localhost:4000&#xa;Atlas, Cloudinary and SMTP are external services" vertex="1">
+          <mxGeometry height="145" width="745" x="370" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e1" edge="1" parent="1" source="a-passenger" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-react" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e2" edge="1" parent="1" source="a-driver" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-react" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e3" edge="1" parent="1" source="a-admin" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-react" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e4" edge="1" parent="1" source="a-react" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-api" value="HTTP / JSON + cookies">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e5" edge="1" parent="1" source="a-api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-mongo" value="Mongoose">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e6" edge="1" parent="1" source="a-api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;" target="a-cloud" value="Images">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-e7" edge="1" parent="1" source="a-api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="a-mail" value="OTP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="02 MongoDB data model" id="mongodb-model">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="m-title" value="MONGODB DATA MODEL — CURRENT MVP" style="text;html=1;align=left;fontSize=27;fontStyle=1;fontColor=#173A3B;" vertex="1" parent="1">
+          <mxGeometry x="45" y="25" width="1400" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="m-passenger" value="PASSENGER&#xa;id, name, username, email, phone&#xa;passwordHash / refreshTokenHash (private)&#xa;emailVerifiedAt, avatar fields&#xa;Unique email + username in this role" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F2FB;strokeColor=#4F88B5;fontColor=#183D5C;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="45" y="155" width="345" height="225" as="geometry" />
+        </mxCell>
+        <mxCell id="m-ride" value="RIDE REQUEST&#xa;passenger → Passenger; pool → Pool?&#xa;pickup, destination, seats&#xa;approxKm; solo, pooled, final fare&#xa;fareRule snapshot; payment; status&#xa;history[] + timestamps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2DD;strokeColor=#D39A45;fontColor=#624220;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="485" y="155" width="380" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="m-pool" value="POOL&#xa;driver → Driver; members[] → RideRequest&#xa;pickup; first destination&#xa;capacity 2–4; occupiedSeats&#xa;vehicle / driver snapshots&#xa;status; history[] + timestamps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="960" y="155" width="365" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="m-driver" value="DRIVER&#xa;id, name, username, email, phone&#xa;licence, expiry, Tesla and seats&#xa;usual serviceArea ≠ currentArea&#xa;availability, verificationStatus&#xa;verificationHistory[] + timestamps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F2FB;strokeColor=#4F88B5;fontColor=#183D5C;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="560" width="365" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="m-otp" value="EMAIL OTP&#xa;role + email (unique pair)&#xa;otpHash, tokenHash, attempts&#xa;expiresAt TTL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1ECFA;strokeColor=#9279BB;fontColor=#513F72;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="45" y="590" width="345" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="m-fare" value="FARE SETTINGS&#xa;Singleton id = current&#xa;baseFarePaisa, perKmPaisa&#xa;sharedDiscountPercent, updatedAt&#xa;Copied to RideRequest at booking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2DD;strokeColor=#D39A45;fontColor=#624220;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="485" y="590" width="380" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="m-rule" value="INVARIANTS&#xa;One active request per Passenger; one active Pool per Driver (partial unique indexes).&#xa;Pool seats never exceed capacity: conditional atomic update + transaction.&#xa;Completed/cancelled records remain; only the owner sees Passenger ride history." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F8F7;strokeColor=#B8C9C7;fontColor=#35525A;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="45" y="845" width="1490" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="m-e1" value="1 → many" edge="1" source="m-passenger" target="m-ride" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m-e2" value="many requests → one pool" edge="1" source="m-ride" target="m-pool" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m-e3" value="many pools → one driver" edge="1" source="m-pool" target="m-driver" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="m-e4" value="rate snapshot" edge="1" source="m-fare" target="m-ride" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#C18A49;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="03 Ride lifecycle" id="ride-lifecycle">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="l-title" value="RIDE + POOL LIFECYCLE" style="text;html=1;align=left;fontSize=27;fontStyle=1;fontColor=#173A3B;" vertex="1" parent="1">
+          <mxGeometry x="45" y="25" width="1400" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="l-requested" value="REQUESTED&#xa;Passenger books&#xa;Solo fare shown" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F2FB;strokeColor=#4F88B5;fontColor=#183D5C;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="35" y="185" width="235" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-matched" value="MATCHED&#xa;Approved online Driver accepts&#xa;Compatible requests join" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="345" y="185" width="255" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-arrived" value="DRIVER_ARRIVED&#xa;Driver marks arrival&#xa;Joining closes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2DD;strokeColor=#D39A45;fontColor=#624220;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="675" y="185" width="245" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-started" value="STARTED&#xa;Trip in progress&#xa;Cancellation closes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1ECFA;strokeColor=#9279BB;fontColor=#513F72;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="995" y="185" width="240" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-completed" value="COMPLETED&#xa;Final fare saved&#xa;Cash due / TeslaPay simulated paid" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF5EA;strokeColor=#62A06F;fontColor=#27513A;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="185" width="255" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-cancelled" value="CANCELLED&#xa;Allowed before STARTED&#xa;Seat released; empty pool cancelled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBEAEA;strokeColor=#C87575;fontColor=#783838;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="380" y="450" width="340" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="l-match-rule" value="MATCHING&#xa;Same pickup area and compatible corridor. Driver accepts first request; suitable waiting requests fill seats. No road routing." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F8F7;strokeColor=#B8C9C7;fontColor=#35525A;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="45" y="660" width="460" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="l-capacity" value="CAPACITY&#xa;Occupied seats ≤ 2–4 seat vehicle capacity. Atomic conditional update + transaction protect the final seat." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F8F7;strokeColor=#B8C9C7;fontColor=#35525A;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="565" y="660" width="460" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="l-fare" value="FARE&#xa;Admin rate → estimate → saved booking quote. At completion shared fare applies only if 2+ members remain. Old rides retain their rates." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F8F7;strokeColor=#B8C9C7;fontColor=#35525A;fontSize=15;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1085" y="660" width="465" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e1" value="" edge="1" source="l-requested" target="l-matched" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e2" value="" edge="1" source="l-matched" target="l-arrived" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e3" value="" edge="1" source="l-arrived" target="l-started" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e4" value="" edge="1" source="l-started" target="l-completed" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#5B7883;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-x1" value="Passenger cancels" edge="1" source="l-requested" target="l-cancelled" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#C87575;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-x2" value="" edge="1" source="l-matched" target="l-cancelled" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#C87575;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-x3" value="" edge="1" source="l-arrived" target="l-cancelled" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;strokeColor=#C87575;strokeWidth=2;labelBackgroundColor=#FFFFFF;fontSize=13;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>

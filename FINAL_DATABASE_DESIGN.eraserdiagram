@@ -1,0 +1,105 @@
+entity-relationship-diagram
+notation crows-feet
+typeface clean
+styleMode plain
+colorMode pastel
+
+// TARGET DESIGN, NOT THE CURRENT ATLAS SCHEMA.
+// Solid lines are stored ObjectId references. MongoDB does not enforce FKs.
+// EmailOtp deliberately has no pre-registration account ObjectId.
+
+Passenger [color: blue] {
+  _id ObjectId pk
+  name string required
+  username string unique_per_role
+  email string unique_per_role
+  phone string required
+  passwordHash string private
+  emailVerifiedAt date optional
+  avatarUrl string optional
+}
+
+Driver [color: green] {
+  _id ObjectId pk
+  name string required
+  username string unique_per_role
+  email string unique_per_role
+  phone string required
+  licenseNumber string unique
+  licenseExpiry date required
+  vehicleRegistrationNumber string unique
+  vehicleModel string required
+  vehicleColor string required
+  passengerSeats number range_2_to_4
+  serviceArea string usual
+  currentArea string selected
+  availability string online_or_offline
+  verificationStatus string enum
+  verificationHistory array embedded
+}
+
+FarePolicy [color: purple] {
+  _id ObjectId pk
+  revision number unique
+  baseFarePaisa number integer
+  perKmPaisa number integer
+  sharedDiscountPercent number range_0_to_100
+  status string active_or_retired
+  effectiveFrom date required
+  retiredAt date optional
+}
+
+RideRequest [color: orange] {
+  _id ObjectId pk
+  passenger ObjectId fk
+  pool ObjectId optional_fk
+  farePolicy ObjectId fk
+  pickupArea string area_code
+  destinationArea string area_code
+  seats number range_1_to_4
+  approximateKm number
+  fareRule object embedded_snapshot
+  soloFarePaisa number integer
+  pooledFarePaisa number integer
+  finalFarePaisa number optional
+  paymentMethod string enum
+  paymentStatus string enum
+  status string enum
+  history array embedded_events
+}
+
+Pool [color: green] {
+  _id ObjectId pk
+  driver ObjectId fk
+  pickupArea string area_code
+  firstDestinationArea string area_code
+  vehicleSnapshot object embedded
+  capacity number range_2_to_4
+  occupiedSeats number
+  members array embedded_references
+  status string enum
+  history array embedded_events
+}
+
+EmailOtp [color: purple] {
+  _id ObjectId pk
+  role string passenger_or_driver
+  email string normalized
+  otpHash string private
+  registrationTokenHash string private
+  attempts number
+  sentAt date
+  expiresAt date ttl
+}
+
+RideRequest.passenger > Passenger._id
+RideRequest.pool > Pool._id
+RideRequest.farePolicy > FarePolicy._id
+Pool.driver > Driver._id
+
+// Pool.members[] embeds request and passenger references. The RideRequest.pool
+// line already shows Pool-to-Request cardinality; drawing another line to the
+// same target would misleadingly imply a separate many-to-many relation.
+
+// The OTP-to-account and policy-to-quote lifecycle links are in
+// FINAL_DATABASE_LIFECYCLE.eraserdiagram; they are not invented FKs.

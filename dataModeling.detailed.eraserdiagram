@@ -1,0 +1,141 @@
+entity-relationship-diagram
+notation crows-feet
+typeface clean
+styleMode plain
+colorMode pastel
+
+// Exact top-level schemas in backend/models/*.js: six collections only.
+// Types below are Mongoose types. Metadata describes schema rules/defaults.
+// ObjectId links are logical Mongoose refs, not MongoDB-enforced foreign keys.
+// Passenger and Driver have separate username/email uniqueness scopes.
+
+Passenger [color: blue] {
+  _id ObjectId pk
+  name string required
+  username string required_partial_unique
+  email string required_unique
+  phone string required
+  passwordHash string private
+  refreshTokenHash string default_null_select_false
+  emailVerifiedAt date default_null
+  isDemo boolean default_false
+  avatarUrl string default_null
+  avatarPublicId string default_null
+  pendingAvatarFilename string default_null
+  createdAt date
+  updatedAt date
+}
+
+Driver [color: green] {
+  _id ObjectId pk
+  name string required
+  username string required_unique
+  email string required_unique
+  phone string required
+  passwordHash string private
+  refreshTokenHash string default_null_select_false
+  emailVerifiedAt date default_null
+  isDemo boolean default_false
+  avatarUrl string default_null
+  avatarPublicId string default_null
+  pendingAvatarFilename string default_null
+  licenseNumber string required_unique
+  licenseExpiry date required
+  vehicleModel string required_enum
+  vehicleRegistrationNumber string required_unique
+  vehicleColor string required
+  passengerSeats number required_min2_max4
+  serviceArea string required
+  availability string default_offline
+  currentArea string default_null
+  locationSource string default_manual
+  locationUpdatedAt date default_null
+  lastOfferAcceptedAt date default_null
+  verificationStatus string default_pending
+  verificationHistory array embedded_subdocuments
+  createdAt date
+  updatedAt date
+}
+
+RideRequest [color: orange] {
+  _id ObjectId pk
+  passenger ObjectId required_fk
+  passengerName string default_null
+  pickupArea string required
+  destinationArea string required
+  seats number required_min1_max4
+  approximateKm number required
+  soloFarePaisa number required_min0
+  pooledFarePaisa number required_min0
+  fareRule object embedded_subdocument
+  finalFarePaisa number default_null
+  paymentMethod string enum_default_null
+  paymentStatus string enum_default_null
+  paidAt date default_null
+  status string enum_default_REQUESTED
+  pool ObjectId fk_default_null
+  history array embedded_subdocuments
+  createdAt date
+  updatedAt date
+}
+
+Pool [color: green] {
+  _id ObjectId pk
+  driver ObjectId required_fk
+  pickupArea string required
+  firstDestinationArea string required
+  vehicleName string required
+  vehicleRegistrationNumber string required
+  vehicleColor string default_null
+  driverName string default_null
+  driverAreaAtMatch string default_null
+  capacity number required_min2_max4
+  occupiedSeats number required_min0
+  members array embedded_subdocuments
+  status string enum_default_MATCHED
+  history array embedded_subdocuments
+  createdAt date
+  updatedAt date
+}
+
+FareSettings [color: orange] {
+  _id string pk_default_current
+  baseFarePaisa number required_min0
+  perKmPaisa number required_min0
+  sharedDiscountPercent number required_min0_max100
+  createdAt date
+  updatedAt date
+}
+
+EmailOtp [color: purple] {
+  _id ObjectId pk
+  role string required_enum
+  email string required
+  otpHash string default_null
+  registrationTokenHash string default_null
+  expiresAt date required_TTL
+  sentAt date required
+  attempts number default_0
+}
+
+RideRequest.passenger > Passenger._id
+RideRequest.pool > Pool._id
+Pool.driver > Driver._id
+Pool <> Passenger
+
+// Pool <> Passenger represents many-to-many membership through Pool.members[].
+// Pool.members[] = {request:ObjectId ref RideRequest required,
+//   passenger:ObjectId ref Passenger required, passengerName:String,
+//   seats:Number required, destinationArea:String}.
+// Pool.history[] = {status:String, at:Date, request:ObjectId,
+//   passengerName:String, seats:Number}.
+// RideRequest.fareRule = {baseFarePaisa:Number, perKmPaisa:Number,
+//   sharedDiscountPercent:Number}; RideRequest.history[] = {status:String, at:Date}.
+// Driver.verificationHistory[] = {status:String enum, at:Date, by:String}.
+// FareSettings has no ride FK: values are copied into RideRequest.fareRule.
+// EmailOtp indexes: unique(role,email), TTL(expiresAt, expireAfterSeconds:0).
+// RideRequest indexes: status; (pickupArea,status,createdAt); partial unique
+//   passenger when status in REQUESTED,MATCHED,DRIVER_ARRIVED,STARTED.
+// Pool index: partial unique driver when status in MATCHED,DRIVER_ARRIVED,STARTED.
+// Passenger index: partial unique username when username is a string.
+// No Admin collection exists in the six listed models.
