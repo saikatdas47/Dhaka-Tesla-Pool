@@ -1,13 +1,17 @@
 import "dotenv/config";
 import mongoose from "mongoose";
+import { createServer } from "node:http";
 import Passenger from "./models/Passenger.js";
 import Driver from "./models/Driver.js";
 import EmailOtp from "./models/EmailOtp.js";
 import Pool from "./models/Pool.js";
 import RideRequest from "./models/RideRequest.js";
+import RideChat from "./models/RideChat.js";
+import DriverReview from "./models/DriverReview.js";
 import { durationMs, accessExpiry, refreshExpiry } from "./utils/tokenConfig.js";
 import { seedDemoAccounts } from "./config/demoAccounts.js";
 import app from "./app.js";
+import { attachRideSockets } from "./socket.js";
 
 const port = Number(process.env.PORT || 4000);
 const mongoUri = process.env.MONGODB_URI;
@@ -58,6 +62,10 @@ async function start() {
       await EmailOtp.init();
       await Pool.init();
       await RideRequest.init();
+      await RideChat.init();
+      // Remove chats closed by older versions, which kept messages until payment.
+      await RideChat.deleteMany({ status: "closed" });
+      await DriverReview.init();
       await seedDemoAccounts();
       databaseInitialized = true;
       app.locals.databaseReady = true;
@@ -75,7 +83,9 @@ async function start() {
     }
   }
 
-  const server = app.listen(port, "0.0.0.0", () => {
+  const server = createServer(app);
+  const io = attachRideSockets(server, app);
+  server.listen(port, "0.0.0.0", () => {
     console.log(`App available at http://localhost:${port}`);
   });
   void connectDatabase();
@@ -83,7 +93,7 @@ async function start() {
   async function shutdown() {
     stopping = true;
     clearTimeout(retryTimer);
-    server.close(async () => {
+    io.close(async () => {
       await mongoose.disconnect();
       process.exit(0);
     });

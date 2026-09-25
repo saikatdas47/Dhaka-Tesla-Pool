@@ -7,29 +7,39 @@ const demoAccounts = {
   passenger: { username: "demo_passenger", password: "DemoPassenger2026!" },
   driver: { username: "demo_driver", password: "DemoDriver2026!" },
 };
+const quickDemoAccounts = {
+  passengers: [
+    { label: "Passenger 1", ...demoAccounts.passenger },
+    { label: "Passenger 2", username: "demo_passenger_2", password: demoAccounts.passenger.password },
+    { label: "Passenger 3", username: "demo_passenger_3", password: demoAccounts.passenger.password },
+  ],
+  drivers: [
+    { label: "Driver 1", ...demoAccounts.driver },
+    { label: "Driver 2", username: "demo_driver_2", password: demoAccounts.driver.password },
+  ],
+};
 
 export function demoAccountsEnabled() {
   return process.env.ENABLE_DEMO_ACCOUNTS === "true";
 }
 
 export function publicDemoAccounts() {
-  return demoAccountsEnabled() ? demoAccounts : null;
+  return demoAccountsEnabled() ? quickDemoAccounts : null;
 }
 
-async function createOrUpdateDemo(Model, role, profile) {
-  const { username, password } = demoAccounts[role];
+async function createOrUpdateDemo(Model, role, account, profile) {
+  const { username, password, label } = account;
   const existing = await Model.findOne({ username });
   if (existing) {
     if (!existing.isDemo) throw new Error(`Cannot seed ${role} demo: username is owned by another account.`);
-    if (role === "passenger" && !existing.phone) await Model.updateOne({ _id: existing.id }, { $set: { phone: "01700000001" } });
+    if (role === "passenger" && !existing.phone) await Model.updateOne({ _id: existing.id }, { $set: { phone: profile.phone } });
     return;
   }
 
   await Model.create({
-    name: role === "passenger" ? "Passenger 1" : "Driver 1",
+    name: label,
     username,
     email: `${username}@dhaka-tesla-pool.invalid`,
-    ...(role === "passenger" ? { phone: "01700000001" } : {}),
     passwordHash: await bcrypt.hash(password, 12),
     emailVerifiedAt: new Date(),
     isDemo: true,
@@ -39,17 +49,24 @@ async function createOrUpdateDemo(Model, role, profile) {
 
 export async function seedDemoAccounts() {
   if (!demoAccountsEnabled()) return;
-  await createOrUpdateDemo(Passenger, "passenger", {});
-  await createOrUpdateDemo(Driver, "driver", {
-    phone: "01700000000",
-    licenseNumber: "DEMO-LICENCE-001",
-    licenseExpiry: new Date("2035-12-31T00:00:00Z"),
-    vehicleModel: "Model 3",
-    vehicleRegistrationNumber: "DEMO-TESLA-001",
-    vehicleColor: "White",
-    passengerSeats: 4,
-    serviceArea: "Banani, Dhaka",
-  });
+  for (const [index, account] of quickDemoAccounts.passengers.entries()) {
+    await createOrUpdateDemo(Passenger, "passenger", account, { phone: `0170000000${index + 1}` });
+  }
+  for (const [index, account] of quickDemoAccounts.drivers.entries()) {
+    const number = String(index + 1).padStart(3, "0");
+    await createOrUpdateDemo(Driver, "driver", account, {
+      phone: `0170000000${index + 4}`,
+      licenseNumber: `DEMO-LICENCE-${number}`,
+      licenseExpiry: new Date("2035-12-31T00:00:00Z"),
+      vehicleModel: "Model 3",
+      vehicleRegistrationNumber: `DEMO-TESLA-${number}`,
+      vehicleColor: index === 0 ? "White" : "Blue",
+      passengerSeats: index === 0 ? 4 : 3,
+      serviceArea: "Banani, Dhaka",
+      verificationStatus: "approved",
+      availability: "offline",
+    });
+  }
 
   const passengers = [
     { name: "Nusrat", username: "demo_nusrat", phone: "01700000011" },

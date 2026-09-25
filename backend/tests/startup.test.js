@@ -14,7 +14,7 @@ test("frontend stays available while database APIs report temporary outage", asy
   try {
     const backendDirectory = path.dirname(fileURLToPath(new URL("../app.js", import.meta.url)));
     if (existsSync(path.join(backendDirectory, "public", "index.html"))) {
-      const page = await fetch(`${base}/login/passenger`);
+      const page = await fetch(`${base}/login`);
       assert.equal(page.status, 200);
     }
     const api = await fetch(`${base}/api/passengers/me`);

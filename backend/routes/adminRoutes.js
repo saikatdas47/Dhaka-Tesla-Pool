@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getAdminSession, getAdminOverview, getAdminFareSettings, updateAdminFareSettings, getDriverForAdmin, getPassengerForAdmin, getLocalAdminAutofill, listDrivers, listDriversForReview, listPassengers, loginAdmin, logoutAdmin, reviewDriverVerification } from "../controllers/adminController.js";
 import { verifyAdmin } from "../middlewares/admin.middleware.js";
+import { adminDriverReviews } from "../controllers/driverReviewController.js";
 
 const router = Router();
 router.post("/login", loginAdmin);
@@ -15,6 +16,7 @@ router.get("/passengers/:id", verifyAdmin, getPassengerForAdmin);
 router.get("/drivers", verifyAdmin, listDrivers);
 router.get("/drivers/pending", verifyAdmin, listDriversForReview);
 router.get("/drivers/:id", verifyAdmin, getDriverForAdmin);
+router.get("/drivers/:id/reviews", verifyAdmin, adminDriverReviews);
 router.patch("/drivers/:id/verification", verifyAdmin, reviewDriverVerification);
 
 export default router;

@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { DriverRides, PassengerRides, RideHistory } from "./RidePanels.jsx";
+import DriverReviews from "./DriverReviews.jsx";
+import { roleFetch } from "./tabAuth.js";
 
-async function accountApi(role, path, options = {}, retry = true) {
+async function accountApi(role, path, options = {}) {
   const collection = role === "driver" ? "drivers" : "passengers";
   const isForm = options.body instanceof FormData;
-  const response = await fetch(`/api/${collection}${path}`, { credentials: "same-origin", ...options, headers: { ...(isForm ? {} : { "Content-Type": "application/json" }), ...options.headers } });
-  if (response.status === 401 && retry && path !== "/refresh-token") {
-    const refreshed = await fetch(`/api/${collection}/refresh-token`, { method: "POST", credentials: "same-origin" });
-    if (refreshed.ok) return accountApi(role, path, options, false);
-  }
+  const response = await roleFetch(role, `/api/${collection}${path}`, { ...options, headers: { ...(isForm ? {} : { "Content-Type": "application/json" }), ...options.headers } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.message || "Please try again.");
   return body.data;
@@ -32,7 +30,7 @@ function AccountMenu({ role, account, onLogout }) {
   }, [open]);
   async function logout() {
     setLoggingOut(true); setError("");
-    try { await accountApi(role, "/logout", { method: "POST" }); onLogout(); navigate(`/login/${role}`, { replace: true }); }
+    try { await accountApi(role, "/logout", { method: "POST" }); onLogout(); navigate("/login", { replace: true, state: { role } }); }
     catch (failure) { setError(failure.message); }
     finally { setLoggingOut(false); }
   }
@@ -98,5 +96,5 @@ function ProfilePage({ role, account, onUpdated }) {
 
 export default function RolePage({ role, account, page, onUpdated, onLogout, Brand }) {
   const isDriver = role === "driver";
-  return <div className={`home-layout ${isDriver ? "driver-home" : ""}`}><header className="home-header"><Brand /><nav className="role-nav" aria-label="Main navigation"><Link className={page === "dashboard" ? "active" : ""} to={`/${role}`}>Dashboard</Link><Link className={page === "history" ? "active" : ""} to={`/${role}/history`}>History</Link></nav><AccountMenu role={role} account={account} onLogout={onLogout} /></header><main className="home-main">{page === "dashboard" && <><div className={`home-hero ${isDriver ? "driver-hero" : ""}`}><div><span className="eyebrow">{isDriver ? "DRIVER DASHBOARD" : "PASSENGER DASHBOARD"}</span><h1>Welcome back, <em>{account.name.split(" ")[0]}.</em></h1><p>{isDriver ? "Set your current area, go online, and manage your shared trip." : "Choose your route, find a seat, and follow your journey."}</p></div><div className="hero-art" aria-hidden="true"><div className="art-road"><span className="art-dot one"/><span className="art-dot two"/><span className="art-dot three"/></div><span className="art-label top">BANANI</span><span className="art-label bottom">MOHAKHALI</span><span className="art-circle">D<span>•</span></span></div></div>{isDriver ? <DriverRides driver={account} onDriverUpdated={onUpdated} /> : <PassengerRides />}</>}{page === "profile" && <ProfilePage role={role} account={account} onUpdated={onUpdated} />}{page === "history" && <RideHistory role={role} />}</main><footer className="home-footer">Share a seat. Split the fare. Survive Dhaka traffic.</footer></div>;
+  return <div className={`home-layout ${isDriver ? "driver-home" : ""}`}><header className="home-header"><Brand /><nav className="role-nav" aria-label="Main navigation"><Link className={page === "dashboard" ? "active" : ""} to={`/${role}`}>Dashboard</Link><Link className={page === "history" ? "active" : ""} to={`/${role}/history`}>History</Link></nav><AccountMenu role={role} account={account} onLogout={onLogout} /></header><main className="home-main">{page === "dashboard" && <><div className={`home-hero ${isDriver ? "driver-hero" : ""}`}><div><span className="eyebrow">{isDriver ? "DRIVER DASHBOARD" : "PASSENGER DASHBOARD"}</span><h1>Welcome back, <em>{account.name.split(" ")[0]}.</em></h1><p>{isDriver ? "Set your current area, go online, and manage your shared trip." : "Choose your route, find a seat, and follow your journey."}</p></div><div className="hero-art" aria-hidden="true"><div className="art-road"><span className="art-dot one"/><span className="art-dot two"/><span className="art-dot three"/></div><span className="art-label top">BANANI</span><span className="art-label bottom">MOHAKHALI</span><span className="art-circle">D<span>•</span></span></div></div>{isDriver ? <DriverRides driver={account} onDriverUpdated={onUpdated} /> : <PassengerRides />}</>}{page === "profile" && <><ProfilePage role={role} account={account} onUpdated={onUpdated} />{isDriver && <DriverReviews endpoint="/api/drivers/reviews" />}</>}{page === "history" && <RideHistory role={role} />}</main><footer className="home-footer">Share a seat. Split the fare. Survive Dhaka traffic.</footer></div>;
 }

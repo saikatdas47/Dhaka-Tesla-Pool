@@ -5,7 +5,7 @@ import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { cleanAccountInput, cleanLoginInput } from "../utils/authInput.js";
-import { startSession, refreshSession, endSession } from "../services/sessionService.js";
+import { startSession, refreshSession, endSession, verifyAccessToken } from "../services/sessionService.js";
 import { consumeRegistrationToken } from "../services/emailOtpService.js";
 import { demoAccountsEnabled } from "../config/demoAccounts.js";
 import { isRealImage, removeAccountAvatar, removeLocalAvatar, sendPendingAvatarToCloudinary } from "../services/avatarService.js";
@@ -157,6 +157,15 @@ export const updateDriverAvailability = asyncHandler(async (request, response) =
 });
 
 export const logoutDriver = asyncHandler(async (request, response) => {
+  // A signed-out driver must not keep receiving new ride offers.
+  const header = request.get("authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : request.cookies?.tesla_pool_driver_session;
+  if (token) {
+    try {
+      const payload = verifyAccessToken(token, "driver");
+      await Driver.updateOne({ _id: payload.sub }, { $set: { availability: "offline" } });
+    } catch { /* Expired sessions still clear their cookies below. */ }
+  }
   await endSession(Driver, "driver", request, response);
   await endSession(Passenger, "passenger", request, response);
   clearAdminSession(response);

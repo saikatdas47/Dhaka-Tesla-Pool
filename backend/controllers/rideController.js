@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 import Driver from "../models/Driver.js";
 import Pool from "../models/Pool.js";
 import RideRequest from "../models/RideRequest.js";
+import RideChat from "../models/RideChat.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { areas, compatibleRoutes, fareQuote, requireArea } from "../utils/rideRules.js";
 import { getFareSettings } from "../services/fareSettingsService.js";
+import { notifyChatClosed, openRideChat } from "../services/rideChatService.js";
 
 const activeStatuses = ["MATCHED", "DRIVER_ARRIVED", "STARTED"];
 
@@ -67,10 +69,10 @@ async function populatedRide(id) {
 
 // A driver accepts the first request. Compatible waiting requests can then
 // join that driver's pool automatically until the driver marks arrival.
-async function tryAutoJoin(rideId, preferredPoolId = null) {
-  const ride = await RideRequest.findOne({ _id: rideId, status: "REQUESTED" });
-  if (!ride) return false;
-  const pools = await Pool.find({ ...(preferredPoolId ? { _id: preferredPoolId } : {}), pickupArea: ride.pickupArea, status: "MATCHED", $expr: { $lte: [{ $add: ["$occupiedSeats", ride.seats] }, "$capacity"] } })
+async function tryAutoJoin(rideId, preferredPoolId = null, knownRide = null, knownPool = null) {
+  const ride = knownRide || await RideRequest.findOne({ _id: rideId, status: "REQUESTED" });
+  if (!ride || ride.status !== "REQUESTED") return false;
+  const pools = knownPool ? [knownPool] : await Pool.find({ ...(preferredPoolId ? { _id: preferredPoolId } : {}), pickupArea: ride.pickupArea, status: "MATCHED", $expr: { $lte: [{ $add: ["$occupiedSeats", ride.seats] }, "$capacity"] } })
     .sort({ createdAt: 1 }).limit(20);
   for (const candidate of pools) {
     if (!compatibleRoutes({ pickupArea: candidate.pickupArea, destinationArea: candidate.firstDestinationArea }, ride)) continue;
@@ -90,6 +92,7 @@ async function tryAutoJoin(rideId, preferredPoolId = null) {
         if (!pool) return;
         const updated = await RideRequest.updateOne({ _id: waiting.id, status: "REQUESTED" }, { $set: { status: "MATCHED", pool: pool.id }, $push: { history: { status: "MATCHED", at } } }, { session });
         if (updated.modifiedCount !== 1) throw new Error("Ride was matched elsewhere; retry.");
+        await openRideChat(waiting, pool, session);
         joined = true;
       });
       if (joined) return true;
@@ -100,15 +103,16 @@ async function tryAutoJoin(rideId, preferredPoolId = null) {
   return false;
 }
 
-async function fillWaitingPool(poolId) {
-  const pool = await Pool.findById(poolId);
+async function fillWaitingPool(poolId, knownPool = null) {
+  const pool = knownPool || await Pool.findById(poolId);
   if (!pool || pool.status !== "MATCHED" || pool.occupiedSeats >= pool.capacity) return;
-  const waiting = await RideRequest.find({ status: "REQUESTED", pickupArea: pool.pickupArea, seats: { $lte: pool.capacity - pool.occupiedSeats } }).sort({ createdAt: 1 }).limit(30);
+  let remainingSeats = pool.capacity - pool.occupiedSeats;
+  const waiting = await RideRequest.find({ status: "REQUESTED", pickupArea: pool.pickupArea, seats: { $lte: remainingSeats } }).sort({ createdAt: 1 }).limit(30);
   for (const ride of waiting) {
-    const current = await Pool.findById(poolId);
-    if (!current || current.status !== "MATCHED" || current.occupiedSeats >= current.capacity) break;
-    if (ride.seats <= current.capacity - current.occupiedSeats && compatibleRoutes({ pickupArea: current.pickupArea, destinationArea: current.firstDestinationArea }, ride)) {
-      await tryAutoJoin(ride.id, poolId);
+    if (remainingSeats === 0) break;
+    if (ride.seats <= remainingSeats && compatibleRoutes({ pickupArea: pool.pickupArea, destinationArea: pool.firstDestinationArea }, ride)) {
+      // The transaction below rechecks the live seat count and ride status.
+      if (await tryAutoJoin(ride.id, poolId, ride, pool)) remainingSeats -= ride.seats;
     }
   }
 }
@@ -195,6 +199,7 @@ export const acceptRide = asyncHandler(async (request, response) => {
   if (!mongoose.isValidObjectId(request.params.id)) throw new ApiError(400, "Invalid ride ID.");
   const session = await mongoose.startSession();
   let poolId;
+  let poolForFill;
   try {
     await session.withTransaction(async () => {
       const activeDriver = await Driver.findOneAndUpdate(
@@ -220,13 +225,15 @@ export const acceptRide = asyncHandler(async (request, response) => {
       }
       const changed = await RideRequest.updateOne({ _id: ride.id, status: "REQUESTED" }, { $set: { status: "MATCHED", pool: pool.id }, $push: { history: { status: "MATCHED", at: new Date() } } }, { session });
       if (changed.modifiedCount !== 1) throw new ApiError(409, "Ride was already accepted.");
+      await openRideChat(ride, pool, session);
       poolId = pool.id;
+      poolForFill = pool;
     });
   } catch (error) {
     if (error.code === 11000) throw new ApiError(409, "A pool is already active. Refresh your offers.");
     throw error;
   } finally { await session.endSession(); }
-  await fillWaitingPool(poolId).catch((error) => console.warn("Pool was accepted, but automatic waiting-request matching needs retry:", error.message));
+  await fillWaitingPool(poolId, poolForFill).catch((error) => console.warn("Pool was accepted, but automatic waiting-request matching needs retry:", error.message));
   const pool = await Pool.findById(poolId).populate("members.passenger", "name");
   response.json(new ApiResponse(200, { pool: publicPool(pool) }, "Ride added to your pool."));
 });
@@ -248,8 +255,10 @@ export const cancelRide = asyncHandler(async (request, response) => {
       }
       const updated = await RideRequest.updateOne({ _id: ride.id, status: ride.status }, { $set: { status: "CANCELLED", paymentStatus: "cancelled" }, $push: { history: { status: "CANCELLED", at: new Date() } } }, { session });
       if (updated.modifiedCount !== 1) throw new ApiError(409, "Ride status changed. Refresh and try again.");
+      await RideChat.deleteOne({ ride: ride.id }, { session });
     });
   } finally { await session.endSession(); }
+  notifyChatClosed(request.app.locals.io, [request.params.id]);
   response.json(new ApiResponse(200, { ride: publicRide(await populatedRide(request.params.id)) }, "Ride cancelled."));
 });
 
@@ -259,12 +268,17 @@ export const advancePool = asyncHandler(async (request, response) => {
   const previous = { DRIVER_ARRIVED: "MATCHED", STARTED: "DRIVER_ARRIVED", COMPLETED: "STARTED" }[next];
   if (!previous) throw new ApiError(400, "Choose the next trip status.");
   const session = await mongoose.startSession();
+  let closedRideIds = [];
   try {
     await session.withTransaction(async () => {
       const pool = await Pool.findOneAndUpdate({ _id: request.params.id, driver: request.driver.id, status: previous }, {
         $set: { status: next }, $push: { history: { status: next, at: new Date() } },
       }, { session, returnDocument: "after" });
       if (!pool) throw new ApiError(409, "Trip status changed or this is not your pool.");
+      if (next === "DRIVER_ARRIVED") {
+        closedRideIds = pool.members.map((member) => String(member.request));
+        await RideChat.deleteMany({ pool: pool.id }, { session });
+      }
       const now = new Date();
       const shared = pool.members.length > 1;
       for (const member of pool.members) {
@@ -277,6 +291,7 @@ export const advancePool = asyncHandler(async (request, response) => {
       }
     });
   } finally { await session.endSession(); }
+  if (closedRideIds.length) notifyChatClosed(request.app.locals.io, closedRideIds);
   const pool = await Pool.findById(request.params.id).populate("members.passenger", "name");
   response.json(new ApiResponse(200, { pool: publicPool(pool) }, "Trip status updated."));
 });
@@ -286,11 +301,18 @@ export const confirmCashPayment = asyncHandler(async (request, response) => {
   const ride = await RideRequest.findById(request.params.id).populate("pool");
   if (!ride || String(ride.pool?.driver) !== request.driver.id) throw new ApiError(404, "Ride not found for this driver.");
   const now = new Date();
-  const updated = await RideRequest.findOneAndUpdate(
-    { _id: ride.id, status: "COMPLETED", paymentMethod: "cash", paymentStatus: "due" },
-    { $set: { paymentStatus: "paid", paidAt: now }, $push: { history: { status: "PAYMENT_PAID", at: now } } },
-    { returnDocument: "after" }
-  );
+  const session = await mongoose.startSession();
+  let updated;
+  try {
+    await session.withTransaction(async () => {
+      updated = await RideRequest.findOneAndUpdate(
+        { _id: ride.id, status: "COMPLETED", paymentMethod: "cash", paymentStatus: "due" },
+        { $set: { paymentStatus: "paid", paidAt: now }, $push: { history: { status: "PAYMENT_PAID", at: now } } },
+        { returnDocument: "after", session }
+      );
+      if (!updated) throw new ApiError(409, "Only completed cash rides awaiting payment can be confirmed.");
+    });
+  } finally { await session.endSession(); }
   if (!updated) throw new ApiError(409, "Only completed cash rides awaiting payment can be confirmed.");
   response.json(new ApiResponse(200, { ride: publicRide(await populatedRide(updated.id)) }, "Cash payment confirmed."));
 });

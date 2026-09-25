@@ -5,7 +5,7 @@ import Passenger from "../models/Passenger.js";
 import Driver from "../models/Driver.js";
 import { seedDemoAccounts, publicDemoAccounts } from "../config/demoAccounts.js";
 
-test("opt-in demo seeding creates one Passenger and one Driver with working autofill credentials", async () => {
+test("opt-in demo seeding creates three quick-demo Passengers and two quick-demo Drivers", async () => {
   const originals = {
     flag: process.env.ENABLE_DEMO_ACCOUNTS,
     passengerFindOne: Passenger.findOne,
@@ -28,15 +28,25 @@ test("opt-in demo seeding creates one Passenger and one Driver with working auto
 
     await seedDemoAccounts();
     const exposed = publicDemoAccounts();
-    assert.equal(created.passengers.length, 4);
-    assert.equal(created.drivers.length, 4);
+    assert.equal(created.passengers.length, 6);
+    assert.equal(created.drivers.length, 5);
+    assert.deepEqual(exposed.passengers.map((account) => account.label), ["Passenger 1", "Passenger 2", "Passenger 3"]);
+    assert.deepEqual(exposed.drivers.map((account) => account.label), ["Driver 1", "Driver 2"]);
+    assert.equal(new Set(exposed.passengers.map((account) => account.username)).size, 3);
+    assert.equal(new Set(exposed.drivers.map((account) => account.username)).size, 2);
     assert.equal(created.passengers[0].isDemo, true);
     assert.equal(created.passengers[0].phone, "01700000001");
     assert.equal(created.drivers[0].isDemo, true);
     assert.equal(created.drivers[0].vehicleModel, "Model 3");
     assert.equal(created.drivers.find((driver) => driver.name === "Jashim").passengerSeats, 3);
-    assert.equal(await bcrypt.compare(exposed.passenger.password, created.passengers[0].passwordHash), true);
-    assert.equal(await bcrypt.compare(exposed.driver.password, created.drivers[0].passwordHash), true);
+    for (const account of exposed.passengers) {
+      const passenger = created.passengers.find((item) => item.username === account.username);
+      assert.equal(await bcrypt.compare(account.password, passenger.passwordHash), true);
+    }
+    for (const account of exposed.drivers) {
+      const driver = created.drivers.find((item) => item.username === account.username);
+      assert.equal(await bcrypt.compare(account.password, driver.passwordHash), true);
+    }
 
     process.env.ENABLE_DEMO_ACCOUNTS = "false";
     assert.equal(publicDemoAccounts(), null);

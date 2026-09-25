@@ -1,19 +1,19 @@
-import { useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import RolePage from "./RolePages.jsx";
+import DriverReviews from "./DriverReviews.jsx";
+import { clearTabAuth, getTabRole, roleFetch, setTabAuth } from "./tabAuth.js";
 
-async function api(role, path, options = {}, mayRefresh = true) {
+async function api(role, path, options = {}) {
   const collection = role === "driver" ? "drivers" : "passengers";
   const isForm = options.body instanceof FormData;
-  const response = await fetch(`/api/${collection}${path}`, {
+  const publicAuth = ["/login", "/register"].includes(path);
+  const perform = publicAuth ? fetch : (url, opts) => roleFetch(role, url, opts);
+  const response = await perform(`/api/${collection}${path}`, {
     credentials: "same-origin",
     ...options,
     headers: { ...(isForm ? {} : { "Content-Type": "application/json" }), ...options.headers },
   });
-  if (response.status === 401 && mayRefresh && !["/login", "/register", "/refresh-token"].includes(path)) {
-    const refreshed = await fetch(`/api/${collection}/refresh-token`, { method: "POST", credentials: "same-origin" });
-    if (refreshed.ok) return api(role, path, options, false);
-  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || "Something went wrong. Please try again.");
   return data.data;
@@ -51,12 +51,13 @@ function Brand({ light = false }) {
   );
 }
 
-function AuthPage({ mode, role, onAuthenticated }) {
+function AuthPage({ mode, onAuthenticated }) {
   const isRegister = mode === "register";
-  const isDriver = role === "driver";
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const demoQuery = searchParams.get("demo");
+  const location = useLocation();
+  const [role, setRole] = useState(() => location.state?.role === "driver" ? "driver" : "passenger");
+  const isDriver = role === "driver";
+  const formPanelRef = useRef(null);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [identity, setIdentity] = useState("");
@@ -79,6 +80,11 @@ function AuthPage({ mode, role, onAuthenticated }) {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [demoAccounts, setDemoAccounts] = useState(null);
 
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    if (formPanelRef.current) formPanelRef.current.scrollTop = 0;
+  }, [mode, role]);
+
   useEffect(() => {
     if (isRegister) return;
     let active = true;
@@ -89,20 +95,22 @@ function AuthPage({ mode, role, onAuthenticated }) {
     return () => { active = false; };
   }, [isRegister]);
 
-  useEffect(() => {
-    if (demoAccounts && demoQuery === role) {
-      setIdentity(demoAccounts[role].username);
-      setPassword(demoAccounts[role].password);
-    }
-  }, [demoAccounts, role, demoQuery]);
+  function chooseDemo(demoRole, account) {
+    setRole(demoRole);
+    setIdentity(account.username);
+    setPassword(account.password);
+    setError("");
+  }
 
-  function chooseDemo(demoRole) {
-    if (demoRole === role) {
-      setIdentity(demoAccounts[demoRole].username);
-      setPassword(demoAccounts[demoRole].password);
-    } else {
-      navigate(`/login/${demoRole}?demo=${demoRole}`);
-    }
+  function chooseRole(nextRole) {
+    if (nextRole === role) return;
+    setRole(nextRole);
+    setOtp("");
+    setOtpSent(false);
+    setRegistrationToken("");
+    setVerificationMessage("");
+    setError("");
+    if (!isRegister) { setIdentity(""); setPassword(""); }
   }
 
   async function sendCode() {
@@ -155,7 +163,7 @@ function AuthPage({ mode, role, onAuthenticated }) {
         method: "POST",
         body: JSON.stringify(body),
       });
-      onAuthenticated(role, result[role]);
+      onAuthenticated(role, result[role], result.accessToken);
       navigate(`/${role}`, { replace: true });
     } catch (requestError) {
       setError(requestError.message);
@@ -182,16 +190,16 @@ function AuthPage({ mode, role, onAuthenticated }) {
         <p className="story-footer">Made for the roads we know by heart.</p>
       </section>
 
-      <main className="form-panel">
+      <main className="form-panel" ref={formPanelRef}>
         <div className="mobile-brand"><Brand /></div>
         <div className={`auth-box ${isDriver && isRegister ? "driver-form" : ""}`}>
           <span className="eyebrow">{isRegister ? "GET STARTED" : "WELCOME BACK"}</span>
           <h2>{isRegister ? `Create your ${role} account` : `Sign in as a ${role}`}</h2>
           <p className="form-intro">{isRegister ? "Choose your role and enter your details." : "Choose the account type you want to use."}</p>
 
-          <div className="role-switch" aria-label="Account type">
-            <Link className={!isDriver ? "selected" : ""} to={`/${mode}/passenger`}>Passenger</Link>
-            <Link className={isDriver ? "selected" : ""} to={`/${mode}/driver`}>Driver</Link>
+          <div className="role-switch" role="group" aria-label="Account type">
+            <button type="button" className={!isDriver ? "selected" : ""} aria-pressed={!isDriver} onClick={() => chooseRole("passenger")}>Passenger</button>
+            <button type="button" className={isDriver ? "selected" : ""} aria-pressed={isDriver} onClick={() => chooseRole("driver")}>Driver</button>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -201,7 +209,7 @@ function AuthPage({ mode, role, onAuthenticated }) {
                   <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Saikat Das" autoComplete="name" minLength="2" maxLength="80" required />
                 </label>
                 <label className="field">Username
-                  <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="e.g. nusrat_rahman" minLength="3" maxLength="30" pattern="[A-Za-z0-9_]+" autoComplete="username" required />
+                  <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="e.g. saikatdas" minLength="3" maxLength="30" pattern="[A-Za-z0-9_]+" autoComplete="username" required />
                 </label>
                 {!isDriver && <label className="field">Mobile number<input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="01XXXXXXXXX" required /></label>}
               </>
@@ -243,9 +251,9 @@ function AuthPage({ mode, role, onAuthenticated }) {
             <button className="primary-button" type="submit" disabled={submitting || (isRegister && !registrationToken)}>{submitting ? "Please wait…" : isRegister ? "Create account" : "Sign in"}<span aria-hidden="true">→</span></button>
           </form>
 
-          {!isRegister && demoAccounts && <div className="demo-logins"><span className="card-kicker">QUICK DEMO LOGIN</span><p>Click to fill in a local test account.</p><div><button type="button" onClick={() => chooseDemo("passenger")}>Use Passenger demo</button><button type="button" onClick={() => chooseDemo("driver")}>Use Driver demo</button></div></div>}
+          {!isRegister && demoAccounts && <div className="demo-logins"><span className="card-kicker">QUICK DEMO LOGIN</span><p>Click an account to fill in its login details.</p><div>{demoAccounts.passengers.map((account) => <button type="button" key={account.username} onClick={() => chooseDemo("passenger", account)}>{account.label}</button>)}</div><div>{demoAccounts.drivers.map((account) => <button type="button" key={account.username} onClick={() => chooseDemo("driver", account)}>{account.label}</button>)}</div></div>}
 
-          <p className="switch-auth">{isRegister ? "Already have an account?" : "New to Dhaka Tesla Pool?"} <Link to={`/${isRegister ? "login" : "register"}/${role}`}>{isRegister ? "Sign in" : "Create an account"}</Link></p>
+          <p className="switch-auth">{isRegister ? "Already have an account?" : "New to Dhaka Tesla Pool?"} <Link to={isRegister ? "/login" : "/register"} state={{ role }}>{isRegister ? "Sign in" : "Create an account"}</Link></p>
           {!isRegister && <p className="switch-auth"><Link to="/admin">Admin sign in</Link></p>}
         </div>
         <p className="form-footer">© {new Date().getFullYear()} Dhaka Tesla Pool</p>
@@ -409,7 +417,7 @@ function AdminPage({ onAuthenticated, onLoggedOut }) {
     {section === "overview" && <><div className="admin-heading"><span className="eyebrow">OVERVIEW</span><h1>Welcome to your dashboard</h1><p>Accounts and driver approvals at a glance.</p></div><div className="admin-stats-grid">{[["Passengers", overview?.passengers], ["Drivers", overview?.drivers], ["Pending review", overview?.pending], ["Approved", overview?.approved]].map(([label, count]) => <div className="admin-stat" key={label}><span>{label}</span><strong>{count ?? "—"}</strong></div>)}</div><section className="info-card admin-shortcut"><span className="card-kicker">DRIVER REVIEW</span><h2>New driver applications</h2><p>Check details before approving or rejecting.</p><button className="retry-button" onClick={() => chooseSection("review")}>Open requests →</button></section></>}
     {section === "statistics" && <><div className="admin-heading"><span className="eyebrow">STATISTICS</span><h1>Account statistics</h1><p>Current figures from MongoDB Atlas.</p></div><div className="admin-stats-grid">{[["Passengers", overview?.passengers], ["Drivers", overview?.drivers], ["Pending", overview?.pending], ["Approved", overview?.approved], ["Rejected", overview?.rejected]].map(([label, count]) => <div className="admin-stat" key={label}><span>{label}</span><strong>{count ?? "—"}</strong></div>)}</div></>}
     {section === "fare-settings" && <FareSettingsPanel />}
-    {detailId && <><button className="retry-button admin-back" onClick={() => navigate(`/admin/${detailSection}`)}>← Back to {detailSection === "review" ? "Driver review" : detailSection === "passengers" ? "Passengers" : "Drivers"}</button>{detail && detail.id === detailId ? detailSection === "passengers" ? <><div className="admin-detail-heading"><img src={detail.avatarUrl || "/default-avatar.svg"} alt="" /><div><span className="eyebrow">PASSENGER PROFILE</span><h1>{detail.name}</h1><p>@{detail.username}</p></div></div><section className="info-card admin-detail-card"><h2>Account information</h2><PassengerDetails passenger={detail} /></section></> : <><div className="admin-detail-heading"><img src={detail.avatarUrl || "/default-avatar.svg"} alt="" /><div><span className="eyebrow">DRIVER PROFILE</span><h1>{detail.name}</h1><p>@{detail.username} · <span className={`verification-status ${detail.verificationStatus}`}>{detail.verificationStatus}</span></p></div></div><section className="info-card admin-detail-card"><h2>Personal & vehicle information</h2><DriverDetails driver={detail} /></section><section className="info-card admin-detail-card"><h2>Verification history</h2>{detail.verificationHistory?.length ? <ol className="admin-timeline">{detail.verificationHistory.map((event, index) => <li key={index}><strong>{event.status}</strong><span>{event.at ? new Date(event.at).toLocaleString() : "Date unavailable"} · {event.by || "System"}</span></li>)}</ol> : <p>No previous decision recorded.</p>}</section>{["pending", "unverified"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "approved")}>Approve driver</button><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "rejected")}>Reject driver</button></div>}{["approved", "rejected"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "unverified")}>Mark unverified</button></div>}</> : <p role={detailError ? "alert" : undefined}>{detailError || (detailLoading ? "Loading account details…" : "Account details unavailable.")}</p>}</>}
+    {detailId && <><button className="retry-button admin-back" onClick={() => navigate(`/admin/${detailSection}`)}>← Back to {detailSection === "review" ? "Driver review" : detailSection === "passengers" ? "Passengers" : "Drivers"}</button>{detail && detail.id === detailId ? detailSection === "passengers" ? <><div className="admin-detail-heading"><img src={detail.avatarUrl || "/default-avatar.svg"} alt="" /><div><span className="eyebrow">PASSENGER PROFILE</span><h1>{detail.name}</h1><p>@{detail.username}</p></div></div><section className="info-card admin-detail-card"><h2>Account information</h2><PassengerDetails passenger={detail} /></section></> : <><div className="admin-detail-heading"><img src={detail.avatarUrl || "/default-avatar.svg"} alt="" /><div><span className="eyebrow">DRIVER PROFILE</span><h1>{detail.name}</h1><p>@{detail.username} · <span className={`verification-status ${detail.verificationStatus}`}>{detail.verificationStatus}</span></p></div></div><section className="info-card admin-detail-card"><h2>Personal & vehicle information</h2><DriverDetails driver={detail} /></section><section className="info-card admin-detail-card"><h2>Verification history</h2>{detail.verificationHistory?.length ? <ol className="admin-timeline">{detail.verificationHistory.map((event, index) => <li key={index}><strong>{event.status}</strong><span>{event.at ? new Date(event.at).toLocaleString() : "Date unavailable"} · {event.by || "System"}</span></li>)}</ol> : <p>No previous decision recorded.</p>}</section>{["pending", "unverified"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "approved")}>Approve driver</button><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "rejected")}>Reject driver</button></div>}{["approved", "rejected"].includes(detail.verificationStatus) && <div className="profile-actions"><button className="retry-button reject-button" disabled={Boolean(workingId)} onClick={() => review(detail.id, "unverified")}>Mark unverified</button></div>}<DriverReviews endpoint={`/api/admin/drivers/${detail.id}/reviews`} /></> : <p role={detailError ? "alert" : undefined}>{detailError || (detailLoading ? "Loading account details…" : "Account details unavailable.")}</p>}</>}
     {!detailId && section === "review" && <><div className="admin-heading"><span className="eyebrow">DRIVER REVIEW</span><h1>New requests</h1><p>Open a request to check all information and make a decision.</p></div>{drivers.length === 0 ? <section className="info-card"><h2>No pending requests</h2><p>New applications will appear here.</p></section> : <div className="admin-driver-list">{drivers.map((driver) => <button className="admin-driver-line" key={driver.id} onClick={() => openDriver(driver, "review")}><img src={driver.avatarUrl || "/default-avatar.svg"} alt="" /><strong>{driver.name}</strong><span>@{driver.username}</span><span className={`admin-line-status ${driver.verificationStatus}`}>{driver.verificationStatus === "unverified" ? "Unverified" : "Pending review"}</span><span aria-hidden="true">→</span></button>)}</div>}</>}
     {!detailId && section === "drivers" && <><div className="admin-heading"><span className="eyebrow">DRIVERS</span><h1>Drivers</h1><p>Search a driver, then open their full profile and verification history.</p></div><form className="admin-search" onSubmit={applySearch}><label className="field">Search by<select value={field} onChange={(event) => setField(event.target.value)}><option value="all">All fields</option><option value="username">Username</option><option value="licence">Licence number</option><option value="name">Name</option><option value="email">Email</option></select></label><label className="field">Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Username or licence number" /></label><label className="field">Seats<select value={seats} onChange={(event) => setSeats(event.target.value)}><option value="">All seats</option><option value="2">2 seats</option><option value="3">3 seats</option><option value="4">4 seats</option></select></label><button className="retry-button" type="submit">Search</button></form>{drivers.length === 0 ? <section className="info-card"><h2>No drivers found</h2><p>Try another search or seat filter.</p></section> : <div className="admin-driver-list">{drivers.map((driver) => <button className="admin-driver-line" key={driver.id} onClick={() => openDriver(driver, "drivers")}><img src={driver.avatarUrl || "/default-avatar.svg"} alt="" /><strong>{driver.name}</strong><span>@{driver.username}</span><span className={`admin-line-status ${driver.verificationStatus}`}>{driver.verificationStatus}</span><span aria-hidden="true">→</span></button>)}</div>}</>}
     {!detailId && section === "passengers" && <><div className="admin-heading"><span className="eyebrow">PASSENGERS</span><h1>Passenger accounts</h1><p>View account information. Ride history stays private.</p></div><form className="admin-search admin-search-passengers" onSubmit={applySearch}><label className="field">Search by<select value={field} onChange={(event) => setField(event.target.value)}><option value="all">All fields</option><option value="username">Username</option><option value="name">Name</option><option value="email">Email</option><option value="phone">Phone</option></select></label><label className="field">Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, username, email or phone" /></label><button className="retry-button" type="submit">Search</button></form>{passengers.length === 0 ? <section className="info-card"><h2>No passengers found</h2><p>Try another search.</p></section> : <div className="admin-driver-list">{passengers.map((passenger) => <button className="admin-driver-line" key={passenger.id} onClick={() => openPassenger(passenger)}><img src={passenger.avatarUrl || "/default-avatar.svg"} alt="" /><strong>{passenger.name}</strong><span>@{passenger.username}</span><span className="admin-line-status">Passenger</span><span aria-hidden="true">→</span></button>)}</div>}</>}
@@ -419,7 +427,7 @@ function AdminPage({ onAuthenticated, onLoggedOut }) {
 
 export default function App() {
   const [accounts, setAccounts] = useState({ passenger: null, driver: null });
-  const [activeRole, setActiveRole] = useState(() => sessionStorage.getItem("activeRole"));
+  const [activeRole, setActiveRole] = useState(() => localStorage.getItem("activeRole"));
   const [checkingSession, setCheckingSession] = useState(true);
 
   function updateAccount(role, account) {
@@ -427,20 +435,25 @@ export default function App() {
   }
 
   function authenticated(role, account) {
+    if (role === "admin") clearTabAuth();
+    else setTabAuth(role);
     setAccounts({ passenger: role === "passenger" ? account : null, driver: role === "driver" ? account : null });
     setActiveRole(role);
-    sessionStorage.setItem("activeRole", role);
+    localStorage.setItem("activeRole", role);
+    sessionStorage.removeItem("activeRole");
   }
 
   function loggedOut() {
+    clearTabAuth();
     setAccounts({ passenger: null, driver: null });
     setActiveRole(null);
+    localStorage.removeItem("activeRole");
     sessionStorage.removeItem("activeRole");
   }
 
   useEffect(() => {
     let active = true;
-    if (sessionStorage.getItem("activeRole") === "admin") { setCheckingSession(false); return () => { active = false; }; }
+    if (localStorage.getItem("activeRole") === "admin") { setCheckingSession(false); return () => { active = false; }; }
     Promise.all(["passenger", "driver"].map(async (role) => {
       try { return [role, (await api(role, "/me"))[role]]; }
       catch { return [role, null]; }
@@ -448,28 +461,34 @@ export default function App() {
       .then((results) => {
         if (!active) return;
         const restored = Object.fromEntries(results);
-        const preferred = sessionStorage.getItem("activeRole");
+        const preferred = getTabRole() || localStorage.getItem("activeRole");
         const role = restored[preferred] ? preferred : restored.driver ? "driver" : restored.passenger ? "passenger" : null;
         setAccounts({ passenger: role === "passenger" ? restored.passenger : null, driver: role === "driver" ? restored.driver : null });
         setActiveRole(role);
-        if (role) sessionStorage.setItem("activeRole", role); else sessionStorage.removeItem("activeRole");
+        if (role) { setTabAuth(role); localStorage.setItem("activeRole", role); }
+        else loggedOut();
       })
       .finally(() => { if (active) setCheckingSession(false); });
     return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    const expire = () => loggedOut();
+    window.addEventListener("tab-auth-expired", expire);
+    return () => window.removeEventListener("tab-auth-expired", expire);
   }, []);
 
   if (checkingSession) return <div className="loading-screen"><Brand /><p>Getting things ready…</p></div>;
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to={activeRole === "admin" ? "/admin" : activeRole === "driver" && accounts.driver ? "/driver" : activeRole === "passenger" && accounts.passenger ? "/passenger" : "/login/passenger"} replace />} />
-      {[["passenger", accounts.passenger], ["driver", accounts.driver]].flatMap(([role, account]) => ["dashboard", "profile", "history"].map((page) => <Route key={`${role}-${page}`} path={`/${role}${page === "dashboard" ? "" : `/${page}`}`} element={activeRole === role && account ? <RolePage role={role} account={account} page={page} Brand={Brand} onLogout={loggedOut} onUpdated={(value) => updateAccount(role, value)} /> : <Navigate to="/" replace />} />))}
-      <Route path="/login" element={<Navigate to="/login/passenger" replace />} />
-      <Route path="/register" element={<Navigate to="/register/passenger" replace />} />
-      <Route path="/login/passenger" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="login-passenger" mode="login" role="passenger" onAuthenticated={authenticated} />} />
-      <Route path="/login/driver" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="login-driver" mode="login" role="driver" onAuthenticated={authenticated} />} />
-      <Route path="/register/passenger" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="register-passenger" mode="register" role="passenger" onAuthenticated={authenticated} />} />
-      <Route path="/register/driver" element={activeRole ? <Navigate to="/" replace /> : <AuthPage key="register-driver" mode="register" role="driver" onAuthenticated={authenticated} />} />
+      <Route path="/" element={<Navigate to={activeRole === "admin" ? "/admin" : activeRole === "driver" && accounts.driver ? "/driver" : activeRole === "passenger" && accounts.passenger ? "/passenger" : "/login"} replace />} />
+      {[["passenger", accounts.passenger], ["driver", accounts.driver]].flatMap(([role, account]) => ["dashboard", "profile", "history"].map((page) => <Route key={`${role}-${page}`} path={`/${role}${page === "dashboard" ? "" : `/${page}`}`} element={activeRole === role && account ? <RolePage role={role} account={account} page={page} Brand={Brand} onLogout={loggedOut} onUpdated={(value) => updateAccount(role, value)} /> : <Navigate to="/login" state={{ role }} replace />} />))}
+      <Route path="/login" element={<AuthPage mode="login" onAuthenticated={authenticated} />} />
+      <Route path="/register" element={activeRole ? <Navigate to="/" replace /> : <AuthPage mode="register" onAuthenticated={authenticated} />} />
+      <Route path="/login/passenger" element={<Navigate to="/login" state={{ role: "passenger" }} replace />} />
+      <Route path="/login/driver" element={<Navigate to="/login" state={{ role: "driver" }} replace />} />
+      <Route path="/register/passenger" element={<Navigate to="/register" state={{ role: "passenger" }} replace />} />
+      <Route path="/register/driver" element={<Navigate to="/register" state={{ role: "driver" }} replace />} />
       <Route path="/admin/*" element={activeRole && activeRole !== "admin" ? <Navigate to="/" replace /> : <AdminPage onAuthenticated={() => authenticated("admin", null)} onLoggedOut={loggedOut} />} />
       <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

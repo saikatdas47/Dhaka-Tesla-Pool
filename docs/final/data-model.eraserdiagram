@@ -1,0 +1,128 @@
+entity-relationship-diagram
+notation crows-feet
+typeface clean
+styleMode plain
+colorMode pastel
+
+// Current backend/models: eight Mongoose collections.
+// ObjectId references are logical; MongoDB does not enforce foreign keys.
+
+Passenger [color: blue] {
+  _id ObjectId pk
+  name string required
+  username string unique_within_role
+  email string unique_within_role
+  phone string required
+  passwordHash string private
+  refreshTokenHash string private
+  emailVerifiedAt date optional
+  avatarUrl string optional
+  createdAt date
+}
+
+Driver [color: green] {
+  _id ObjectId pk
+  name string required
+  username string unique_within_role
+  email string unique_within_role
+  phone string required
+  licenseNumber string unique
+  licenseExpiry date required
+  vehicleModel string required
+  vehicleRegistrationNumber string unique
+  passengerSeats number min2_max4
+  serviceArea string required
+  availability string online_or_offline
+  currentArea string optional
+  verificationStatus string enum
+  verificationHistory array embedded
+  createdAt date
+}
+
+RideRequest [color: orange] {
+  _id ObjectId pk
+  passenger ObjectId required_fk
+  pool ObjectId optional_fk
+  pickupArea string required
+  destinationArea string required
+  seats number min1_max4
+  approximateKm number required
+  soloFarePaisa number integer_money
+  pooledFarePaisa number integer_money
+  finalFarePaisa number optional
+  fareRule object embedded_snapshot
+  paymentMethod string cash_or_teslapay
+  paymentStatus string enum
+  status string enum
+  history array embedded_events
+  createdAt date
+}
+
+Pool [color: green] {
+  _id ObjectId pk
+  driver ObjectId required_fk
+  pickupArea string required
+  capacity number min2_max4
+  occupiedSeats number max_capacity
+  vehicleName string snapshot
+  driverName string snapshot
+  members array embedded_request_and_passenger_refs
+  status string enum
+  history array embedded_events
+  createdAt date
+}
+
+FareSettings [color: orange] {
+  _id string pk_current
+  baseFarePaisa number integer_money
+  perKmPaisa number integer_money
+  sharedDiscountPercent number range0_to100
+  updatedAt date
+}
+
+EmailOtp [color: purple] {
+  _id ObjectId pk
+  role string passenger_or_driver
+  email string normalized
+  otpHash string private
+  registrationTokenHash string private
+  attempts number
+  expiresAt date ttl
+}
+
+RideChat [color: purple] {
+  _id ObjectId pk
+  ride ObjectId required_unique_fk
+  pool ObjectId required_fk
+  passenger ObjectId required_fk
+  driver ObjectId required_fk
+  messages array embedded_temporary
+  status string open_or_closed
+  expiresAt date ttl
+}
+
+DriverReview [color: blue] {
+  _id ObjectId pk
+  ride ObjectId required_unique_fk
+  passenger ObjectId required_fk
+  driver ObjectId required_fk
+  passengerName string snapshot
+  rating number integer1_to5
+  comment string required
+  createdAt date
+}
+
+RideRequest.passenger > Passenger._id
+RideRequest.pool > Pool._id
+Pool.driver > Driver._id
+RideChat.ride > RideRequest._id
+RideChat.pool > Pool._id
+RideChat.passenger > Passenger._id
+RideChat.driver > Driver._id
+DriverReview.ride > RideRequest._id
+DriverReview.passenger > Passenger._id
+DriverReview.driver > Driver._id
+
+// Pool.members[] also contains RideRequest and Passenger ObjectId refs.
+// FareSettings values are copied into RideRequest.fareRule; no stored FK.
+// EmailOtp is pre-registration, keyed by role and email, with no account FK.
