@@ -74,7 +74,15 @@ function AreaMap({
     <div className="area-map">
       <div className="area-map-title">
         <strong>Dhaka weighted graph</strong>
-        <small>Demo distances · BFS tree path · no live GPS</small>
+        <small className="map-subtitle">
+          <span>Demo distances · BFS tree path · no live GPS</span>
+          <span className="map-direction" aria-label="Travel from yellow pickup to purple destination">
+            <span className="map-dot pickup-dot" aria-hidden="true" />
+            Pickup <span aria-hidden="true">→</span>
+            <span className="map-dot destination-dot" aria-hidden="true" />
+            Destination
+          </span>
+        </small>
       </div>
       <svg
         viewBox="0 0 800 450"
@@ -309,8 +317,8 @@ export function PassengerRides() {
         <span className="card-kicker">YOUR JOURNEY</span>
         <h2>Request a shared ride</h2>
         <p>
-          Choose Dhaka areas. The unique tree path is calculated automatically for
-          any listed pair.
+          Choose Dhaka areas. The unique tree path is calculated automatically
+          for any listed pair.
         </p>
       </div>
       <div className="driver-map-layout passenger-map-layout">
@@ -569,7 +577,7 @@ export function DriverRides({ driver, onDriverUpdated }) {
             assignedOnline={driver.availability === "online"}
           />
         )}
-        <div className="info-card">
+        <div className="info-card availability-card">
           <h3>Your availability</h3>
           <p
             className={
@@ -625,10 +633,10 @@ export function DriverRides({ driver, onDriverUpdated }) {
             </button>
           </div>
           {pool && (
-            <small>
+            <p className="availability-note">
               Finish all accepted bookings before going offline. Pickup/drop-off
               updates your area automatically.
-            </small>
+            </p>
           )}
           {driver.verificationStatus !== "approved" && (
             <p>Approval is required to receive new offers.</p>
@@ -657,21 +665,23 @@ export function DriverRides({ driver, onDriverUpdated }) {
                   {offer.compatibility}
                   {offer.addedKm > 0 ? " · Adds " + offer.addedKm + " km" : ""}
                 </p>
-                <button
-                  className="retry-button"
-                  onClick={() => setPreview(offer)}
-                >
-                  Preview path
-                </button>
-                <button
-                  className="retry-button"
-                  disabled={busy}
-                  onClick={() =>
-                    action("/requests/" + offer.id + "/accept", "POST")
-                  }
-                >
-                  Accept booking
-                </button>
+                <div className="offer-actions">
+                  <button
+                    className="retry-button"
+                    onClick={() => setPreview(offer)}
+                  >
+                    Preview path
+                  </button>
+                  <button
+                    className="retry-button"
+                    disabled={busy}
+                    onClick={() =>
+                      action("/requests/" + offer.id + "/accept", "POST")
+                    }
+                  >
+                    Accept booking
+                  </button>
+                </div>
               </article>
             ))}
           </div>
