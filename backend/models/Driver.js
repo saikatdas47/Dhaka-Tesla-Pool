@@ -59,7 +59,7 @@ const driverSchema = new mongoose.Schema(
     currentArea: { type: String, default: null },
     locationSource: {
       type: String,
-      enum: ["manual", "gps"],
+      enum: ["manual", "trip-action", "gps"],
       default: "manual",
     },
     locationUpdatedAt: { type: Date, default: null },

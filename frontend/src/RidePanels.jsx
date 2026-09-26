@@ -14,7 +14,7 @@ async function request(role, path, options = {}) {
 }
 
 function taka(paisa) {
-  return `৳${(paisa / 100).toFixed(0)}`;
+  return `৳${(paisa / 100).toFixed(2)}`;
 }
 function paymentLabel(method) {
   return method === "teslapay"
@@ -36,60 +36,108 @@ async function updateDriverAvailability(body) {
   return result.data.driver;
 }
 
-function AreaMap({ areas, drivers = [], selectedArea, assignedArea }) {
-  const points = Object.entries(areas);
-  const latitudes = points.map(([, [lat]]) => lat);
-  const longitudes = points.map(([, [, lng]]) => lng);
-  const minLat = Math.min(...latitudes),
-    maxLat = Math.max(...latitudes);
-  const minLng = Math.min(...longitudes),
-    maxLng = Math.max(...longitudes);
-  const point = ([lat, lng]) => ({
-    x: 45 + ((lng - minLng) / (maxLng - minLng)) * 430,
-    y: 340 - ((lat - minLat) / (maxLat - minLat)) * 280,
-  });
+function AreaMap({
+  areas,
+  edges = [],
+  path = [],
+  extensionStops = [],
+  drivers = [],
+  selectedArea,
+  destinationArea,
+  assignedArea,
+  assignedOnline = true,
+}) {
+  const positions = {
+    Dhanmondi: [120, 390],
+    Farmgate: [285, 330],
+    Mohakhali: [425, 260],
+    "Gulshan 1": [585, 215],
+    Banani: [500, 150],
+    Bashundhara: [690, 80],
+    Mirpur: [70, 170],
+    Agargaon: [190, 230],
+    Uttara: [370, 55],
+    Motijheel: [700, 400],
+    Shahbag: [510, 355],
+  };
+  function onPath(from, to) {
+    for (let index = 0; index < path.length - 1; index++) {
+      if (
+        (path[index] === from && path[index + 1] === to) ||
+        (path[index] === to && path[index + 1] === from)
+      )
+        return true;
+    }
+    return false;
+  }
   return (
     <div className="area-map">
       <div className="area-map-title">
-        <strong>Dhaka area map</strong>
-        <small>Approximate area positions · not live GPS</small>
+        <strong>Dhaka weighted graph</strong>
+        <small>Demo distances · BFS tree path · no live GPS</small>
       </div>
       <svg
-        viewBox="0 0 520 385"
+        viewBox="0 0 800 450"
         role="img"
-        aria-label="Map of selected Dhaka areas and online drivers"
+        aria-label="Dhaka graph, edge distances and shortest path"
       >
-        <path
-          d="M70 310 Q170 210 250 260 T465 110 M100 80 Q240 130 400 340 M45 200 Q260 190 475 250"
-          fill="none"
-          stroke="#d8e8da"
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
-        <path
-          d="M70 310 Q170 210 250 260 T465 110 M100 80 Q240 130 400 340 M45 200 Q260 190 475 250"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="3"
-          strokeDasharray="8 8"
-        />
-        {points.map(([name, coordinates]) => {
-          const { x, y } = point(coordinates);
-          const count = drivers.filter((driver) => driver.area === name).length;
-          const labelOnLeft = x > 375;
+        {edges.map((edge) => {
+          const [x1, y1] = positions[edge.from],
+            [x2, y2] = positions[edge.to];
+          let color = "#ccd6dc";
+          if (onPath(edge.from, edge.to)) color = "#3776bd";
+          if (
+            onPath(edge.from, edge.to) &&
+            (extensionStops.includes(edge.from) ||
+              extensionStops.includes(edge.to))
+          )
+            color = "#ec8c32";
+          const x = (x1 + x2) / 2,
+            y = (y1 + y2) / 2;
+          return (
+            <g key={edge.from + edge.to}>
+              <line
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={color}
+                strokeWidth={onPath(edge.from, edge.to) ? 6 : 3}
+              />
+              <rect
+                x={x - 18}
+                y={y - 9}
+                width="36"
+                height="18"
+                rx="5"
+                fill="white"
+              />
+              <text
+                x={x}
+                y={y + 4}
+                fontSize="11"
+                textAnchor="middle"
+                fill="#455569"
+              >
+                {edge.km} km
+              </text>
+            </g>
+          );
+        })}
+        {Object.keys(areas).map((name) => {
+          const [x, y] = positions[name];
+          let fill = "#93a5b2";
+          if (drivers.some((driver) => driver.area === name)) fill = "#218452";
+          if (name === selectedArea) fill = "#eab308";
+          if (name === destinationArea) fill = "#8b5cf6";
+          const left = x > 590;
           return (
             <g key={name}>
               <circle
                 cx={x}
                 cy={y}
-                r={name === selectedArea ? 10 : 7}
-                fill={
-                  name === selectedArea
-                    ? "#d88643"
-                    : count
-                      ? "#2b7655"
-                      : "#9db3a1"
-                }
+                r={name === selectedArea || name === destinationArea ? 11 : 7}
+                fill={fill}
                 stroke="white"
                 strokeWidth="3"
               />
@@ -97,30 +145,51 @@ function AreaMap({ areas, drivers = [], selectedArea, assignedArea }) {
                 <circle
                   cx={x}
                   cy={y}
-                  r="15"
+                  r="17"
                   fill="none"
-                  stroke="#3a70c2"
+                  stroke={assignedOnline ? "#218452" : "#9ca3af"}
                   strokeWidth="3"
                 />
               )}
               <text
-                x={labelOnLeft ? x - 11 : x + 11}
-                y={y - 10}
-                textAnchor={labelOnLeft ? "end" : "start"}
-                fontSize="12"
-                fill="#244c3a"
+                x={left ? x - 15 : x + 15}
+                y={y - 12}
+                textAnchor={left ? "end" : "start"}
+                fontSize="13"
+                fill="#27394b"
                 fontWeight="700"
               >
                 {name}
-                {count ? ` · ${count} online` : ""}
               </text>
+              {name === selectedArea && (
+                <text
+                  x={x}
+                  y={y + 25}
+                  textAnchor="middle"
+                  fontSize="11"
+                  fill="#806300"
+                >
+                  Pickup / current area
+                </text>
+              )}
+              {name === destinationArea && (
+                <text
+                  x={x}
+                  y={y + 25}
+                  textAnchor="middle"
+                  fontSize="11"
+                  fill="#6940ab"
+                >
+                  Destination
+                </text>
+              )}
             </g>
           );
         })}
       </svg>
       <p>
-        Green: available driver · Orange: selected area · Blue ring: assigned
-        driver’s last selected area.
+        Yellow: pickup · Purple: destination · Blue: path · Orange: proposed
+        extension · Driver ring: green online / grey offline.
       </p>
     </div>
   );
@@ -128,6 +197,8 @@ function AreaMap({ areas, drivers = [], selectedArea, assignedArea }) {
 
 export function PassengerRides() {
   const [areas, setAreas] = useState(null);
+  const [edges, setEdges] = useState([]);
+  const [path, setPath] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [rides, setRides] = useState([]);
   const [pickupArea, setPickupArea] = useState("Banani");
@@ -148,7 +219,10 @@ export function PassengerRides() {
   }
   useEffect(() => {
     request("passenger", "/config")
-      .then((result) => setAreas(result.areas))
+      .then((result) => {
+        setAreas(result.areas);
+        setEdges(result.edges);
+      })
       .catch((failure) => setError(failure.message));
     refresh().catch((failure) => setError(failure.message));
     const timer = setInterval(() => refresh().catch(() => {}), 10000);
@@ -157,6 +231,23 @@ export function PassengerRides() {
   useEffect(() => {
     setQuote(null);
   }, [pickupArea, destinationArea, seats]);
+
+  useEffect(() => {
+    let current = true;
+    setPath([]);
+    const params = new URLSearchParams({
+      pickup: pickupArea,
+      destination: destinationArea,
+    });
+    request("passenger", "/path?" + params)
+      .then((result) => {
+        if (current) setPath(result.routeStops);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [pickupArea, destinationArea]);
 
   async function estimate() {
     setError("");
@@ -218,19 +309,23 @@ export function PassengerRides() {
         <span className="card-kicker">YOUR JOURNEY</span>
         <h2>Request a shared ride</h2>
         <p>
-          Choose Dhaka areas. Drivers select their location manually for this
-          demo.
+          Choose Dhaka areas. The unique tree path is calculated automatically for
+          any listed pair.
         </p>
       </div>
-      {areas && (
-        <AreaMap
-          areas={areas}
-          drivers={drivers}
-          selectedArea={pickupArea}
-          assignedArea={active?.driverArea}
-        />
-      )}
-      <div className="ride-columns">
+      <div className="driver-map-layout passenger-map-layout">
+        {areas && (
+          <AreaMap
+            areas={areas}
+            edges={edges}
+            path={path}
+            destinationArea={destinationArea}
+            drivers={drivers}
+            selectedArea={pickupArea}
+            assignedArea={active?.driverArea}
+            assignedOnline={active?.driverAvailability === "online"}
+          />
+        )}
         <form className="info-card ride-form" onSubmit={create}>
           <h3>New ride</h3>
           <label className="field">
@@ -285,7 +380,7 @@ export function PassengerRides() {
               {taka(quote.pooledFarePaisa)}{" "}
               <small>
                 ~{quote.approximateKm} km; shared fare applies when another
-                request joins the pool.
+                booking shares an overlapping route segment.
               </small>
             </p>
           )}
@@ -301,56 +396,56 @@ export function PassengerRides() {
                 : "Request ride"}
           </button>
         </form>
-        <div className="info-card">
-          <h3>Current ride</h3>
-          {rides.length === 0 ? (
-            <p>No active ride. Create your first request.</p>
-          ) : (
-            <div className="ride-list">
-              {rides.map((ride) => (
-                <article className="ride-item" key={ride.id}>
-                  <strong>
-                    {ride.pickupArea} → {ride.destinationArea}
-                  </strong>
-                  <span className="status-pill">
-                    {ride.status.replaceAll("_", " ")}
-                  </span>
+      </div>
+      <div className="info-card">
+        <h3>Current ride</h3>
+        {rides.length === 0 ? (
+          <p>No active ride. Create your first request.</p>
+        ) : (
+          <div className="ride-list">
+            {rides.map((ride) => (
+              <article className="ride-item" key={ride.id}>
+                <strong>
+                  {ride.pickupArea} → {ride.destinationArea}
+                </strong>
+                <span className="status-pill">
+                  {ride.status.replaceAll("_", " ")}
+                </span>
+                <p>
+                  {ride.seats} seat{ride.seats > 1 ? "s" : ""} · current fare{" "}
+                  {taka(ride.currentFarePaisa)}
+                  {ride.poolSize > 1
+                    ? ` · ${ride.poolSize} passengers sharing`
+                    : ""}
+                </p>
+                <p>
+                  Payment: {paymentLabel(ride.paymentMethod)} ·{" "}
+                  {ride.paymentStatus}
+                </p>
+                {ride.driverName && (
                   <p>
-                    {ride.seats} seat{ride.seats > 1 ? "s" : ""} · current fare{" "}
-                    {taka(ride.currentFarePaisa)}
-                    {ride.poolSize > 1
-                      ? ` · ${ride.poolSize} passengers sharing`
+                    Driver: {ride.driverName}
+                    {ride.driverArea
+                      ? ` · last recorded area: ${ride.driverArea}`
                       : ""}
                   </p>
-                  <p>
-                    Payment: {paymentLabel(ride.paymentMethod)} ·{" "}
-                    {ride.paymentStatus}
-                  </p>
-                  {ride.driverName && (
-                    <p>
-                      Driver: {ride.driverName}
-                      {ride.driverArea
-                        ? ` · last selected area: ${ride.driverArea}`
-                        : ""}
-                    </p>
-                  )}
-                  {["REQUESTED", "MATCHED", "DRIVER_ARRIVED"].includes(
-                    ride.status,
-                  ) && (
-                    <button
-                      type="button"
-                      className="retry-button"
-                      disabled={busy}
-                      onClick={() => cancel(ride.id)}
-                    >
-                      Cancel ride
-                    </button>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
+                )}
+                {["REQUESTED", "MATCHED", "DRIVER_ARRIVED"].includes(
+                  ride.status,
+                ) && (
+                  <button
+                    type="button"
+                    className="retry-button"
+                    disabled={busy}
+                    onClick={() => cancel(ride.id)}
+                  >
+                    Cancel ride
+                  </button>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
       </div>
       {active?.status === "MATCHED" && (
         <RideChatBox
@@ -370,9 +465,11 @@ export function PassengerRides() {
 
 export function DriverRides({ driver, onDriverUpdated }) {
   const [areas, setAreas] = useState(null);
+  const [edges, setEdges] = useState([]);
   const [currentArea, setCurrentArea] = useState(
     driver.currentArea || "Banani",
   );
+  const [preview, setPreview] = useState(null);
   const [offers, setOffers] = useState([]);
   const [pool, setPool] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -390,21 +487,43 @@ export function DriverRides({ driver, onDriverUpdated }) {
   }
   useEffect(() => {
     request("driver", "/config")
-      .then((result) => setAreas(result.areas))
+      .then((result) => {
+        setAreas(result.areas);
+        setEdges(result.edges);
+      })
       .catch((failure) => setError(failure.message));
     refresh().catch((failure) => setError(failure.message));
     const timer = setInterval(() => refresh().catch(() => {}), 10000);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (driver.currentArea) setCurrentArea(driver.currentArea);
+    setCurrentArea(driver.currentArea || "Banani");
   }, [driver.currentArea]);
+  async function action(path, method, body) {
+    setBusy(true);
+    setError("");
+    try {
+      await request("driver", path, {
+        method,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      setPreview(null);
+      await refresh();
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function saveAvailability(availability) {
     setBusy(true);
     setError("");
     try {
       onDriverUpdated(
-        await updateDriverAvailability({ availability, currentArea }),
+        await updateDriverAvailability({
+          availability,
+          ...(pool ? {} : { currentArea }),
+        }),
       );
       await refresh();
     } catch (failure) {
@@ -413,173 +532,256 @@ export function DriverRides({ driver, onDriverUpdated }) {
       setBusy(false);
     }
   }
-  async function accept(id) {
-    setBusy(true);
-    setError("");
-    try {
-      await request("driver", `/requests/${id}/accept`, { method: "POST" });
-      await refresh();
-    } catch (failure) {
-      setError(failure.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function advance(status) {
-    setBusy(true);
-    setError("");
-    try {
-      await request("driver", `/pools/${pool.id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await refresh();
-    } catch (failure) {
-      setError(failure.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const next = {
+  const chats =
+    pool?.members.filter((member) => member.status === "MATCHED") || [];
+  const transitions = {
     MATCHED: ["DRIVER_ARRIVED", "Mark arrived"],
-    DRIVER_ARRIVED: ["STARTED", "Start trip"],
-    STARTED: ["COMPLETED", "Complete trip"],
-  }[pool?.status];
+    DRIVER_ARRIVED: ["STARTED", "Pick up passenger"],
+    STARTED: ["COMPLETED", "Drop off passenger"],
+  };
   return (
     <section className="ride-section">
       <div className="ride-section-head">
         <span className="card-kicker">DRIVER WORKSPACE</span>
-        <h2>Availability and trips</h2>
+        <h2>Your route, passengers and seats</h2>
         <p>
-          Only approved, online drivers see requests from their selected area.
+          First booking starts at your area. Later bookings follow the path or
+          extend it forward.
         </p>
-      </div>
-      <div className="ride-columns">
-        <div className="info-card">
-          <h3>Your availability</h3>
-          <p
-            className={`status-pill availability-pill ${driver.availability === "online" ? "online" : "offline"}`}
-          >
-            {driver.availability || "offline"}
-          </p>
-          <label className="field">
-            Current area
-            <select
-              value={currentArea}
-              onChange={(event) => setCurrentArea(event.target.value)}
-            >
-              {Object.keys(areas || { Banani: true }).map((area) => (
-                <option key={area}>{area}</option>
-              ))}
-            </select>
-          </label>
-          <div className="profile-actions">
-            <button
-              type="button"
-              className="retry-button"
-              disabled={busy || driver.verificationStatus !== "approved"}
-              onClick={() => saveAvailability("online")}
-            >
-              Save area & go online
-            </button>
-            <button
-              type="button"
-              className="retry-button"
-              disabled={busy || driver.availability !== "online"}
-              onClick={() => saveAvailability("offline")}
-            >
-              Go offline
-            </button>
-          </div>
-          {driver.verificationStatus !== "approved" && (
-            <p className="driver-note">
-              Admin approval is required before going online. An active trip can
-              still be completed after approval is revoked.
-            </p>
-          )}
-        </div>
-        <div className="info-card">
-          <h3>Current pool</h3>
-          {pool ? (
-            <>
-              <p>
-                <strong>{pool.pickupArea}</strong> · {pool.vehicleName}
-              </p>
-              <p>
-                {pool.occupiedSeats}/{pool.capacity} seats occupied ·{" "}
-                {pool.status.replaceAll("_", " ")}
-              </p>
-              <ul className="pool-members">
-                {pool.members.map((member) => (
-                  <li key={member.requestId}>
-                    {member.passengerName || "Passenger"} · {member.seats}{" "}
-                    seat(s) → {member.destinationArea} ·{" "}
-                    {paymentLabel(member.paymentMethod)}
-                  </li>
-                ))}
-              </ul>
-              {pool.status === "MATCHED" &&
-                pool.members.map((member) => (
-                  <RideChatBox
-                    key={member.requestId}
-                    role="driver"
-                    rideId={member.requestId}
-                    title={`Message ${member.passengerName || "passenger"}`}
-                  />
-                ))}
-              {next && (
-                <button
-                  type="button"
-                  className="retry-button"
-                  disabled={busy}
-                  onClick={() => advance(next[0])}
-                >
-                  {next[1]}
-                </button>
-              )}
-            </>
-          ) : (
-            <p>No active pool.</p>
-          )}
-        </div>
-      </div>
-      {areas && <AreaMap areas={areas} selectedArea={currentArea} />}
-      <div className="info-card ride-offers-card">
-        <h3>Requests in your area</h3>
-        {offers.length === 0 ? (
-          <p>
-            No compatible requests right now. Check that you are online and
-            approved.
-          </p>
-        ) : (
-          <div className="ride-list">
-            {offers.map((offer) => (
-              <article className="ride-item" key={offer.id}>
-                <strong>
-                  {offer.pickupArea} → {offer.destinationArea}
-                </strong>
-                <p>
-                  {offer.seats} seat(s) · fare estimate{" "}
-                  {taka(offer.soloFarePaisa)}
-                </p>
-                <button
-                  type="button"
-                  className="retry-button"
-                  disabled={busy}
-                  onClick={() => accept(offer.id)}
-                >
-                  Accept & match pool
-                </button>
-              </article>
-            ))}
-          </div>
-        )}
       </div>
       {error && (
         <p className="form-error" role="alert">
           {error}
         </p>
       )}
+      <div className="driver-map-layout">
+        {areas && (
+          <AreaMap
+            areas={areas}
+            edges={edges}
+            path={preview?.proposedPath || pool?.routeStops || []}
+            extensionStops={preview?.extensionStops || []}
+            selectedArea={driver.currentArea}
+            destinationArea={
+              preview?.proposedPath?.at(-1) || pool?.routeStops?.at(-1)
+            }
+            assignedArea={driver.currentArea}
+            assignedOnline={driver.availability === "online"}
+          />
+        )}
+        <div className="info-card">
+          <h3>Your availability</h3>
+          <p
+            className={
+              "status-pill availability-pill " +
+              (driver.availability === "online" ? "online" : "offline")
+            }
+          >
+            {driver.availability || "offline"}
+          </p>
+          {pool ? (
+            <p>
+              Current area: <strong>{driver.currentArea}</strong>
+              <br />
+              Updated by pickup/drop-off actions. No manual trip-location
+              controls.
+            </p>
+          ) : (
+            <label className="field">
+              Starting area
+              <select
+                value={currentArea}
+                onChange={(event) => setCurrentArea(event.target.value)}
+              >
+                {Object.keys(areas || {}).map((area) => (
+                  <option key={area}>{area}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {pool && (
+            <p>
+              Automatic destination: <strong>{pool.routeStops?.at(-1)}</strong>
+            </p>
+          )}
+          <div className="profile-actions">
+            <button
+              className="retry-button"
+              disabled={
+                busy || (driver.verificationStatus !== "approved" && !pool)
+              }
+              onClick={() => saveAvailability("online")}
+            >
+              {pool ? "Resume online" : "Save starting area & go online"}
+            </button>
+            <button
+              className="retry-button"
+              disabled={
+                busy || Boolean(pool) || driver.availability !== "online"
+              }
+              onClick={() => saveAvailability("offline")}
+            >
+              Go offline
+            </button>
+          </div>
+          {pool && (
+            <small>
+              Finish all accepted bookings before going offline. Pickup/drop-off
+              updates your area automatically.
+            </small>
+          )}
+          {driver.verificationStatus !== "approved" && (
+            <p>Approval is required to receive new offers.</p>
+          )}
+        </div>
+      </div>
+      <div className="info-card ride-offers-card">
+        <h3>Compatible ride requests</h3>
+        {offers.length === 0 ? (
+          <p>
+            No compatible requests. Check your starting area and available
+            segment seats.
+          </p>
+        ) : (
+          <div className="offer-grid">
+            {offers.map((offer) => (
+              <article className="ride-item" key={offer.id}>
+                <strong>
+                  {offer.pickupArea} → {offer.destinationArea}
+                </strong>
+                <p>
+                  {offer.seats} seat(s) · solo estimate{" "}
+                  {taka(offer.soloFarePaisa)}
+                </p>
+                <p>
+                  {offer.compatibility}
+                  {offer.addedKm > 0 ? " · Adds " + offer.addedKm + " km" : ""}
+                </p>
+                <button
+                  className="retry-button"
+                  onClick={() => setPreview(offer)}
+                >
+                  Preview path
+                </button>
+                <button
+                  className="retry-button"
+                  disabled={busy}
+                  onClick={() =>
+                    action("/requests/" + offer.id + "/accept", "POST")
+                  }
+                >
+                  Accept booking
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+      {chats.length > 0 && (
+        <section>
+          <h3>Passenger chats</h3>
+          <div className="driver-chat-grid">
+            {chats.map((member) => (
+              <RideChatBox
+                key={member.requestId}
+                role="driver"
+                rideId={member.requestId}
+                title={"Message " + (member.passengerName || "Passenger")}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="info-card">
+        <h3>Current pool</h3>
+        {!pool ? (
+          <p>No active pool. Accept a request to start.</p>
+        ) : (
+          <>
+            <p>
+              {pool.vehicleName} · {pool.occupiedSeats}/{pool.capacity} seats
+              currently on board
+            </p>
+            {pool.routeStops?.length > 0 && (
+              <p>{pool.routeStops.slice(0, pool.endIndex + 1).join(" → ")}</p>
+            )}
+            {pool.segmentSeats?.length > 0 && (
+              <div className="segment-summary">
+                {pool.segmentSeats
+                  .slice(0, pool.endIndex)
+                  .map((count, index) => (
+                    <span key={index}>
+                      {pool.routeStops[index]} → {pool.routeStops[index + 1]}:{" "}
+                      <strong>
+                        {count}/{pool.capacity}
+                      </strong>
+                    </span>
+                  ))}
+              </div>
+            )}
+            <div className="offer-grid">
+              {pool.members.map((member) => {
+                const next = transitions[member.status];
+                return (
+                  <article className="ride-item" key={member.requestId}>
+                    <strong>{member.passengerName || "Passenger"}</strong>
+                    <p>
+                      {member.pickupArea} → {member.destinationArea} ·{" "}
+                      {member.seats} seat(s)
+                    </p>
+                    <span className="status-pill">
+                      {member.status?.replaceAll("_", " ")}
+                    </span>
+                    {pool.routeCode && next && (
+                      <button
+                        className="retry-button"
+                        disabled={busy}
+                        onClick={() =>
+                          action(
+                            "/requests/" + member.requestId + "/status",
+                            "PATCH",
+                            { status: next[0] },
+                          )
+                        }
+                      >
+                        {next[1]}
+                      </button>
+                    )}
+                    {member.paymentStatus === "due" &&
+                      member.paymentMethod === "cash" && (
+                        <button
+                          className="retry-button"
+                          disabled={busy}
+                          onClick={() =>
+                            action(
+                              "/requests/" + member.requestId + "/confirm-cash",
+                              "POST",
+                            )
+                          }
+                        >
+                          Confirm cash received
+                        </button>
+                      )}
+                  </article>
+                );
+              })}
+            </div>
+            {!pool.routeCode && transitions[pool.status] && (
+              <button
+                className="retry-button"
+                disabled={busy}
+                onClick={() =>
+                  action("/pools/" + pool.id + "/status", "PATCH", {
+                    status: transitions[pool.status][0],
+                  })
+                }
+              >
+                Legacy trip: {transitions[pool.status][1]}
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }

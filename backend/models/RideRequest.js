@@ -10,7 +10,22 @@ const rideRequestSchema = new mongoose.Schema(
     passengerName: { type: String, default: null },
     pickupArea: { type: String, required: true },
     destinationArea: { type: String, required: true },
-    seats: { type: Number, required: true, min: 1, max: 4 },
+    seats: {
+      type: Number,
+      required: true,
+      min: 1,
+      max: 4,
+      validate: Number.isInteger,
+    },
+    routeCode: String,
+    routeStops: [String],
+    segmentKm: [Number],
+    direction: String,
+    pickupIndex: Number,
+    destinationIndex: Number,
+    arrivedAt: Date,
+    pickedUpAt: Date,
+    droppedOffAt: Date,
     approximateKm: { type: Number, required: true },
     soloFarePaisa: { type: Number, required: true, min: 0 },
     pooledFarePaisa: { type: Number, required: true, min: 0 },
@@ -47,6 +62,13 @@ const rideRequestSchema = new mongoose.Schema(
 );
 
 rideRequestSchema.index({ pickupArea: 1, status: 1, createdAt: 1 });
+rideRequestSchema.index({
+  status: 1,
+  routeCode: 1,
+  direction: 1,
+  pickupIndex: 1,
+  createdAt: 1,
+});
 rideRequestSchema.index(
   { passenger: 1 },
   {

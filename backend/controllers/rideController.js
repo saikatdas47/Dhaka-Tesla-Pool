@@ -8,7 +8,13 @@ import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import {
   areas,
-  compatibleRoutes,
+  edges,
+  shortestPath,
+  planBooking,
+  priceForDistance,
+  rideIndexes,
+  reserveSeats,
+  hasSharedSegment,
   fareQuote,
   requireArea,
 } from "../utils/rideRules.js";
@@ -22,9 +28,17 @@ function publicRide(ride) {
     ride.pool && typeof ride.pool === "object" && "members" in ride.pool
       ? ride.pool
       : null;
-  const shared = (pool?.members?.length || 0) > 1;
+  const shared = pool?.routeCode
+    ? hasSharedSegment(pool, ride)
+    : (pool?.members?.length || 0) > 1;
   return {
     id: ride.id,
+    routeCode: ride.routeCode,
+    routeStops: ride.routeStops,
+    segmentKm: ride.segmentKm,
+    direction: ride.direction,
+    pickupIndex: ride.pickupIndex,
+    destinationIndex: ride.destinationIndex,
     pickupArea: ride.pickupArea,
     destinationArea: ride.destinationArea,
     seats: ride.seats,
@@ -40,9 +54,17 @@ function publicRide(ride) {
     paidAt: ride.paidAt || null,
     status: ride.status,
     poolId: pool?.id || ride.pool?.toString() || null,
-    poolSize: pool?.members?.length || 0,
+    poolSize: pool?.routeCode
+      ? pool.members.filter(
+          (member) =>
+            member.status !== "CANCELLED" &&
+            member.pickupIndex < ride.destinationIndex &&
+            ride.pickupIndex < member.destinationIndex,
+        ).length
+      : pool?.members?.length || 0,
     driverName: pool?.driverName || pool?.driver?.name || null,
     driverArea: pool?.driver?.currentArea || null,
+    driverAvailability: pool?.driver?.availability || "offline",
     driverAreaAtMatch: pool?.driverAreaAtMatch || null,
     vehicleName: pool?.vehicleName || null,
     vehicleRegistrationNumber: pool?.vehicleRegistrationNumber || null,
@@ -55,6 +77,13 @@ function publicPool(pool, rides = []) {
   const rideById = new Map(rides.map((ride) => [String(ride.id), ride]));
   return {
     id: pool.id,
+    routeCode: pool.routeCode,
+    direction: pool.direction,
+    routeStops: pool.routeStops,
+    segmentSeats: pool.segmentSeats,
+    endIndex: pool.endIndex,
+    currentStopIndex: pool.currentStopIndex,
+    destinationArea: pool.routeStops?.at(-1),
     pickupArea: pool.pickupArea,
     vehicleName: pool.vehicleName,
     vehicleRegistrationNumber: pool.vehicleRegistrationNumber,
@@ -69,6 +98,10 @@ function publicPool(pool, rides = []) {
       return {
         requestId: member.request.toString(),
         seats: member.seats,
+        pickupArea: member.pickupArea || pool.pickupArea,
+        status: ride?.status || member.status,
+        pickupIndex: member.pickupIndex,
+        destinationIndex: member.destinationIndex,
         destinationArea: member.destinationArea,
         passengerName: member.passengerName || member.passenger?.name || null,
         paymentMethod: ride?.paymentMethod || "not recorded",
@@ -84,149 +117,12 @@ function publicPool(pool, rides = []) {
 async function populatedRide(id) {
   return RideRequest.findById(id).populate({
     path: "pool",
-    populate: { path: "driver", select: "name currentArea" },
+    populate: { path: "driver", select: "name currentArea availability" },
   });
 }
 
-// A driver accepts the first request. Compatible waiting requests can then
-// join that driver's pool automatically until the driver marks arrival.
-async function tryAutoJoin(
-  rideId,
-  preferredPoolId = null,
-  knownRide = null,
-  knownPool = null,
-) {
-  const ride =
-    knownRide ||
-    (await RideRequest.findOne({ _id: rideId, status: "REQUESTED" }));
-  if (!ride || ride.status !== "REQUESTED") return false;
-  const pools = knownPool
-    ? [knownPool]
-    : await Pool.find({
-        ...(preferredPoolId ? { _id: preferredPoolId } : {}),
-        pickupArea: ride.pickupArea,
-        status: "MATCHED",
-        $expr: {
-          $lte: [{ $add: ["$occupiedSeats", ride.seats] }, "$capacity"],
-        },
-      })
-        .sort({ createdAt: 1 })
-        .limit(20);
-  for (const candidate of pools) {
-    if (
-      !compatibleRoutes(
-        {
-          pickupArea: candidate.pickupArea,
-          destinationArea: candidate.firstDestinationArea,
-        },
-        ride,
-      )
-    )
-      continue;
-    const session = await mongoose.startSession();
-    try {
-      let joined = false;
-      await session.withTransaction(async () => {
-        const driver = await Driver.findOne({
-          _id: candidate.driver,
-          availability: "online",
-          verificationStatus: "approved",
-          currentArea: ride.pickupArea,
-        }).session(session);
-        const waiting = await RideRequest.findOne({
-          _id: rideId,
-          status: "REQUESTED",
-        }).session(session);
-        if (!driver || !waiting) return;
-        const at = new Date();
-        const pool = await Pool.findOneAndUpdate(
-          {
-            _id: candidate.id,
-            status: "MATCHED",
-            pickupArea: waiting.pickupArea,
-            firstDestinationArea: candidate.firstDestinationArea,
-            $expr: {
-              $lte: [{ $add: ["$occupiedSeats", waiting.seats] }, "$capacity"],
-            },
-          },
-          {
-            $inc: { occupiedSeats: waiting.seats },
-            $push: {
-              members: {
-                request: waiting.id,
-                passenger: waiting.passenger,
-                passengerName: waiting.passengerName,
-                seats: waiting.seats,
-                destinationArea: waiting.destinationArea,
-              },
-              history: {
-                status: "PASSENGER_ADDED",
-                at,
-                request: waiting.id,
-                passengerName: waiting.passengerName,
-                seats: waiting.seats,
-              },
-            },
-          },
-          { session, returnDocument: "after" },
-        );
-        if (!pool) return;
-        const updated = await RideRequest.updateOne(
-          { _id: waiting.id, status: "REQUESTED" },
-          {
-            $set: { status: "MATCHED", pool: pool.id },
-            $push: { history: { status: "MATCHED", at } },
-          },
-          { session },
-        );
-        if (updated.modifiedCount !== 1)
-          throw new Error("Ride was matched elsewhere; retry.");
-        await openRideChat(waiting, pool, session);
-        joined = true;
-      });
-      if (joined) return true;
-    } catch {
-      // A competing accept/cancellation may win. Keep the request waiting.
-    } finally {
-      await session.endSession();
-    }
-  }
-  return false;
-}
-
-async function fillWaitingPool(poolId, knownPool = null) {
-  const pool = knownPool || (await Pool.findById(poolId));
-  if (!pool || pool.status !== "MATCHED" || pool.occupiedSeats >= pool.capacity)
-    return;
-  let remainingSeats = pool.capacity - pool.occupiedSeats;
-  const waiting = await RideRequest.find({
-    status: "REQUESTED",
-    pickupArea: pool.pickupArea,
-    seats: { $lte: remainingSeats },
-  })
-    .sort({ createdAt: 1 })
-    .limit(30);
-  for (const ride of waiting) {
-    if (remainingSeats === 0) break;
-    if (
-      ride.seats <= remainingSeats &&
-      compatibleRoutes(
-        {
-          pickupArea: pool.pickupArea,
-          destinationArea: pool.firstDestinationArea,
-        },
-        ride,
-      )
-    ) {
-      // The transaction below rechecks the live seat count and ride status.
-      if (await tryAutoJoin(ride.id, poolId, ride, pool))
-        remainingSeats -= ride.seats;
-    }
-  }
-}
-
 export const getRideConfig = asyncHandler(async (_request, response) => {
-  response.json(new ApiResponse(200, { areas }, "Dhaka demo areas."));
+  response.json(new ApiResponse(200, { areas, edges }, "Dhaka demo areas."));
 });
 
 export const quoteRide = asyncHandler(async (request, response) => {
@@ -243,6 +139,16 @@ export const quoteRide = asyncHandler(async (request, response) => {
       200,
       quote,
       "Estimated fare. Final fare depends on pool membership.",
+    ),
+  );
+});
+
+export const getRidePath = asyncHandler(async (request, response) => {
+  response.json(
+    new ApiResponse(
+      200,
+      shortestPath(request.query.pickup, request.query.destination),
+      "Shortest demo path.",
     ),
   );
 });
@@ -278,12 +184,6 @@ export const createRide = asyncHandler(async (request, response) => {
       ...quote,
       history: [{ status: "REQUESTED", at: new Date() }],
     });
-    await tryAutoJoin(ride.id).catch((error) =>
-      console.warn(
-        "Ride was created, but automatic matching needs retry:",
-        error.message,
-      ),
-    );
     response
       .status(201)
       .json(
@@ -323,7 +223,7 @@ export const myRides = asyncHandler(async (request, response) => {
       .limit(20)
       .populate({
         path: "pool",
-        populate: { path: "driver", select: "name currentArea" },
+        populate: { path: "driver", select: "name currentArea availability" },
       }),
     RideRequest.countDocuments(filter),
   ]);
@@ -349,32 +249,19 @@ export const nearbyDrivers = asyncHandler(async (_request, response) => {
   })
     .select("name vehicleModel vehicleColor currentArea passengerSeats")
     .limit(100);
-  const busy = await Pool.find({ status: { $in: activeStatuses } }).select(
-    "driver status capacity occupiedSeats",
-  );
-  const busyIds = new Set(
-    busy
-      .filter(
-        (pool) =>
-          pool.status !== "MATCHED" || pool.occupiedSeats >= pool.capacity,
-      )
-      .map((pool) => String(pool.driver)),
-  );
   response.json(
     new ApiResponse(
       200,
       {
-        drivers: drivers
-          .filter((driver) => !busyIds.has(driver.id))
-          .map((driver) => ({
-            id: driver.id,
-            name: driver.name,
-            vehicle: driver.vehicleModel,
-            color: driver.vehicleColor,
-            seats: driver.passengerSeats,
-            area: driver.currentArea,
-            position: areas[driver.currentArea],
-          })),
+        drivers: drivers.map((driver) => ({
+          id: driver.id,
+          name: driver.name,
+          vehicle: driver.vehicleModel,
+          color: driver.vehicleColor,
+          seats: driver.passengerSeats,
+          area: driver.currentArea,
+          position: areas[driver.currentArea],
+        })),
       },
       "Available drivers by manually selected area.",
     ),
@@ -386,51 +273,69 @@ export const driverOffers = asyncHandler(async (request, response) => {
   if (
     driver.availability !== "online" ||
     driver.verificationStatus !== "approved" ||
-    !driver.currentArea
-  )
+    !driver.currentArea ||
+    new Date(driver.licenseExpiry) <= new Date()
+  ) {
     return response.json(
-      new ApiResponse(
-        200,
-        { offers: [] },
-        "Go online in an area to see offers.",
-      ),
+      new ApiResponse(200, { offers: [] }, "Go online after approval."),
     );
+  }
   const pool = await Pool.findOne({
     driver: driver.id,
     status: { $in: activeStatuses },
   });
-  if (pool && pool.status !== "MATCHED")
+  if (pool && pool.routeCode !== "graph-v1")
     return response.json(
-      new ApiResponse(200, { offers: [] }, "Finish your current trip first."),
+      new ApiResponse(200, { offers: [] }, "Finish the older pool first."),
     );
-  const rides = await RideRequest.find({
+  const filter = {
     status: "REQUESTED",
-    pickupArea: driver.currentArea,
-    seats: {
-      $lte: pool ? pool.capacity - pool.occupiedSeats : driver.passengerSeats,
-    },
-  })
+    seats: { $lte: driver.passengerSeats },
+  };
+  if (pool)
+    filter.pickupArea = { $in: pool.routeStops.slice(pool.currentStopIndex) };
+  else filter.pickupArea = driver.currentArea;
+  const rides = await RideRequest.find(filter)
     .sort({ createdAt: 1 })
-    .limit(30);
-  const offers = pool
-    ? rides.filter((ride) =>
-        compatibleRoutes(
-          {
-            pickupArea: pool.pickupArea,
-            destinationArea: pool.firstDestinationArea,
-          },
-          ride,
-        ),
-      )
-    : rides;
+    .limit(200);
+  const offers = [];
+  for (const ride of rides) {
+    let plan = null;
+    if (pool)
+      plan = planBooking(pool, pool.routeStops[pool.currentStopIndex], ride);
+    else plan = firstBookingPlan(driver, ride);
+    if (!plan) continue;
+    offers.push({
+      ...publicRide(ride),
+      proposedPath: plan.routeStops,
+      extensionStops: plan.extensionStops || [],
+      addedKm: plan.addedKm || 0,
+      compatibility: plan.addedKm
+        ? "Forward extension after " + pool.routeStops.at(-1)
+        : "Compatible: same forward path",
+    });
+  }
   response.json(
-    new ApiResponse(
-      200,
-      { offers: offers.map(publicRide) },
-      "Ride offers for your current area.",
-    ),
+    new ApiResponse(200, { offers }, "Compatible graph-path bookings."),
   );
 });
+
+function firstBookingPlan(driver, ride) {
+  if (
+    ride.pickupArea !== driver.currentArea ||
+    ride.seats > driver.passengerSeats
+  )
+    return null;
+  const path = shortestPath(ride.pickupArea, ride.destinationArea);
+  return {
+    ...path,
+    capacity: driver.passengerSeats,
+    segmentSeats: path.segmentKm.map(() => 0),
+    endIndex: path.routeStops.length - 1,
+    pickup: 0,
+    destination: path.routeStops.length - 1,
+  };
+}
 
 export const driverPool = asyncHandler(async (request, response) => {
   const pool = await Pool.findOne({
@@ -482,137 +387,110 @@ export const driverHistory = asyncHandler(async (request, response) => {
 });
 
 export const acceptRide = asyncHandler(async (request, response) => {
-  const driver = request.driver;
-  if (
-    driver.availability !== "online" ||
-    driver.verificationStatus !== "approved" ||
-    !driver.currentArea
-  )
-    throw new ApiError(403, "Go online in an area after admin approval.");
   if (!mongoose.isValidObjectId(request.params.id))
     throw new ApiError(400, "Invalid ride ID.");
   const session = await mongoose.startSession();
   let poolId;
-  let poolForFill;
   try {
     await session.withTransaction(async () => {
-      const activeDriver = await Driver.findOneAndUpdate(
+      // Write this Driver document to serialize accept, location, and offline changes.
+      const driver = await Driver.findOneAndUpdate(
         {
-          _id: driver.id,
-          verificationStatus: "approved",
+          _id: request.driver.id,
           availability: "online",
-          currentArea: driver.currentArea,
+          verificationStatus: "approved",
+          licenseExpiry: { $gt: new Date() },
         },
         { $set: { lastOfferAcceptedAt: new Date() } },
         { session, returnDocument: "after" },
       );
-      if (!activeDriver)
+      if (!driver)
         throw new ApiError(
           403,
-          "Driver approval, availability, or area changed. Refresh your offers.",
+          "An approved online Driver with a valid licence is required.",
         );
       const ride = await RideRequest.findOne({
         _id: request.params.id,
         status: "REQUESTED",
-        pickupArea: driver.currentArea,
       }).session(session);
-      if (!ride)
-        throw new ApiError(409, "Ride is no longer available in your area.");
+      if (!ride) throw new ApiError(409, "Request is no longer available.");
       let pool = await Pool.findOne({
         driver: driver.id,
         status: { $in: activeStatuses },
       }).session(session);
+      if (pool && pool.routeCode !== "graph-v1")
+        throw new ApiError(409, "Finish the older pool first.");
+      const trip = pool
+        ? planBooking(pool, pool.routeStops[pool.currentStopIndex], ride)
+        : firstBookingPlan(driver, ride);
+      if (!trip)
+        throw new ApiError(
+          409,
+          "Pickup is behind, path reverses/branches, or a segment is full.",
+        );
+      const { pickup, destination } = trip;
+      let distance = 0;
+      for (let index = pickup; index < destination; index++)
+        distance += trip.segmentKm[index];
+      const quote = priceForDistance(
+        distance,
+        ride.seats,
+        ride.fareRule?.baseFarePaisa != null
+          ? ride.fareRule
+          : await getFareSettings(),
+      );
+      const member = {
+        request: ride.id,
+        passenger: ride.passenger,
+        passengerName: ride.passengerName,
+        seats: ride.seats,
+        pickupArea: ride.pickupArea,
+        destinationArea: ride.destinationArea,
+        pickupIndex: pickup,
+        destinationIndex: destination,
+        status: "MATCHED",
+      };
+      const event = {
+        status: "PASSENGER_ADDED",
+        at: new Date(),
+        request: ride.id,
+        passengerName: ride.passengerName,
+        seats: ride.seats,
+      };
+      const segmentSeats = reserveSeats(trip, ride);
       if (pool) {
-        if (
-          pool.status !== "MATCHED" ||
-          !compatibleRoutes(
-            {
-              pickupArea: pool.pickupArea,
-              destinationArea: pool.firstDestinationArea,
-            },
-            ride,
-          )
-        )
-          throw new ApiError(
-            409,
-            "Finish the current pool before accepting this route.",
-          );
-        pool = await Pool.findOneAndUpdate(
-          {
-            _id: pool.id,
-            status: "MATCHED",
-            $expr: {
-              $lte: [{ $add: ["$occupiedSeats", ride.seats] }, "$capacity"],
-            },
-          },
-          {
-            $inc: { occupiedSeats: ride.seats },
-            $push: {
-              members: {
-                request: ride.id,
-                passenger: ride.passenger,
-                passengerName: ride.passengerName,
-                seats: ride.seats,
-                destinationArea: ride.destinationArea,
-              },
-            },
-          },
-          { session, returnDocument: "after" },
-        );
-        if (!pool) throw new ApiError(409, "No seats remain in this pool.");
-        await Pool.updateOne(
-          { _id: pool.id },
-          {
-            $push: {
-              history: {
-                status: "PASSENGER_ADDED",
-                at: new Date(),
-                request: ride.id,
-                passengerName: ride.passengerName,
-                seats: ride.seats,
-              },
-            },
-          },
-          { session },
-        );
+        pool.routeStops = trip.routeStops;
+        pool.segmentKm = trip.segmentKm;
+        pool.endIndex = trip.endIndex;
+        pool.segmentSeats = segmentSeats;
+        if (trip.addedKm)
+          pool.history.push({
+            status: "ROUTE_EXTENDED",
+            at: new Date(),
+            request: ride.id,
+          });
+        pool.members.push(member);
+        pool.history.push(event);
+        await pool.save({ session });
       } else {
-        if (ride.seats > activeDriver.passengerSeats)
-          throw new ApiError(
-            409,
-            "This ride needs more seats than your vehicle has.",
-          );
         [pool] = await Pool.create(
           [
             {
+              ...trip,
+              routeCode: "graph-v1",
+              currentStopIndex: 0,
+              segmentSeats,
               driver: driver.id,
               pickupArea: ride.pickupArea,
               firstDestinationArea: ride.destinationArea,
-              vehicleName: activeDriver.vehicleModel,
-              vehicleRegistrationNumber: activeDriver.vehicleRegistrationNumber,
-              vehicleColor: activeDriver.vehicleColor,
-              driverName: activeDriver.name,
-              driverAreaAtMatch: activeDriver.currentArea,
-              capacity: activeDriver.passengerSeats,
-              occupiedSeats: ride.seats,
-              members: [
-                {
-                  request: ride.id,
-                  passenger: ride.passenger,
-                  passengerName: ride.passengerName,
-                  seats: ride.seats,
-                  destinationArea: ride.destinationArea,
-                },
-              ],
-              history: [
-                { status: "MATCHED", at: new Date() },
-                {
-                  status: "PASSENGER_ADDED",
-                  at: new Date(),
-                  request: ride.id,
-                  passengerName: ride.passengerName,
-                  seats: ride.seats,
-                },
-              ],
+              driverName: driver.name,
+              driverAreaAtMatch: driver.currentArea,
+              vehicleName: driver.vehicleModel,
+              vehicleRegistrationNumber: driver.vehicleRegistrationNumber,
+              vehicleColor: driver.vehicleColor,
+              occupiedSeats: 0,
+              members: [member],
+              history: [{ status: "MATCHED", at: new Date() }, event],
             },
           ],
           { session },
@@ -621,39 +499,39 @@ export const acceptRide = asyncHandler(async (request, response) => {
       const changed = await RideRequest.updateOne(
         { _id: ride.id, status: "REQUESTED" },
         {
-          $set: { status: "MATCHED", pool: pool.id },
+          $set: {
+            ...quote,
+            routeCode: "graph-v1",
+            routeStops: trip.routeStops.slice(pickup, destination + 1),
+            segmentKm: trip.segmentKm.slice(pickup, destination),
+            status: "MATCHED",
+            pool: pool.id,
+            pickupIndex: pickup,
+            destinationIndex: destination,
+          },
           $push: { history: { status: "MATCHED", at: new Date() } },
         },
         { session },
       );
       if (changed.modifiedCount !== 1)
-        throw new ApiError(409, "Ride was already accepted.");
+        throw new ApiError(409, "Request was accepted elsewhere.");
       await openRideChat(ride, pool, session);
       poolId = pool.id;
-      poolForFill = pool;
     });
   } catch (error) {
     if (error.code === 11000)
-      throw new ApiError(409, "A pool is already active. Refresh your offers.");
+      throw new ApiError(409, "Another acceptance won. Refresh and try again.");
     throw error;
   } finally {
     await session.endSession();
   }
-  await fillWaitingPool(poolId, poolForFill).catch((error) =>
-    console.warn(
-      "Pool was accepted, but automatic waiting-request matching needs retry:",
-      error.message,
-    ),
-  );
-  const pool = await Pool.findById(poolId).populate(
-    "members.passenger",
-    "name",
-  );
+  const pool = await Pool.findById(poolId);
+  const rides = await RideRequest.find({ pool: poolId });
   response.json(
     new ApiResponse(
       200,
-      { pool: publicPool(pool) },
-      "Ride added to your pool.",
+      { pool: publicPool(pool, rides) },
+      "Booking accepted into your pool.",
     ),
   );
 });
@@ -670,51 +548,51 @@ export const cancelRide = asyncHandler(async (request, response) => {
       }).session(session);
       if (!ride) throw new ApiError(404, "Ride not found.");
       if (!["REQUESTED", "MATCHED", "DRIVER_ARRIVED"].includes(ride.status))
-        throw new ApiError(409, "This ride can no longer be cancelled.");
+        throw new ApiError(409, "Cannot cancel after boarding.");
       if (ride.pool) {
-        const pool = await Pool.findOneAndUpdate(
-          {
-            _id: ride.pool,
-            status: { $in: ["MATCHED", "DRIVER_ARRIVED"] },
-            "members.request": ride.id,
-          },
-          {
-            $inc: { occupiedSeats: -ride.seats },
-            $pull: { members: { request: ride.id } },
-            $push: {
-              history: {
-                status: "PASSENGER_CANCELLED",
-                at: new Date(),
-                request: ride.id,
-                passengerName: ride.passengerName,
-                seats: ride.seats,
-              },
-            },
-          },
-          { session, returnDocument: "after" },
-        );
-        if (!pool)
-          throw new ApiError(409, "The driver has already started this trip.");
-        if (pool.members.length === 0)
-          await Pool.updateOne(
-            { _id: pool.id },
-            {
-              $set: { status: "CANCELLED" },
-              $push: { history: { status: "CANCELLED", at: new Date() } },
-            },
-            { session },
+        const pool = await Pool.findById(ride.pool).session(session);
+        if (!pool || !activeStatuses.includes(pool.status))
+          throw new ApiError(409, "Pool is no longer active.");
+        if (pool.routeCode) {
+          pool.segmentSeats = reserveSeats(pool, ride, -1);
+          const member = pool.members.find(
+            (item) => String(item.request) === ride.id,
           );
+          if (!member)
+            throw new ApiError(409, "Booking membership is inconsistent.");
+          member.status = "CANCELLED";
+          if (
+            pool.members.every((item) =>
+              ["COMPLETED", "CANCELLED"].includes(item.status),
+            )
+          )
+            pool.status = pool.members.some(
+              (item) => item.status === "COMPLETED",
+            )
+              ? "COMPLETED"
+              : "CANCELLED";
+        } else {
+          if (pool.status === "STARTED")
+            throw new ApiError(409, "Legacy trip already started.");
+          pool.members = pool.members.filter(
+            (item) => String(item.request) !== ride.id,
+          );
+          pool.occupiedSeats -= ride.seats;
+          if (!pool.members.length) pool.status = "CANCELLED";
+        }
+        pool.history.push({
+          status: "PASSENGER_CANCELLED",
+          at: new Date(),
+          request: ride.id,
+          passengerName: ride.passengerName,
+          seats: ride.seats,
+        });
+        await pool.save({ session });
       }
-      const updated = await RideRequest.updateOne(
-        { _id: ride.id, status: ride.status },
-        {
-          $set: { status: "CANCELLED", paymentStatus: "cancelled" },
-          $push: { history: { status: "CANCELLED", at: new Date() } },
-        },
-        { session },
-      );
-      if (updated.modifiedCount !== 1)
-        throw new ApiError(409, "Ride status changed. Refresh and try again.");
+      ride.status = "CANCELLED";
+      ride.paymentStatus = "cancelled";
+      ride.history.push({ status: "CANCELLED", at: new Date() });
+      await ride.save({ session });
       await RideChat.deleteOne({ ride: ride.id }, { session });
     });
   } finally {
@@ -726,6 +604,149 @@ export const cancelRide = asyncHandler(async (request, response) => {
       200,
       { ride: publicRide(await populatedRide(request.params.id)) },
       "Ride cancelled.",
+    ),
+  );
+});
+
+export const advancePassengerRide = asyncHandler(async (request, response) => {
+  if (!mongoose.isValidObjectId(request.params.id))
+    throw new ApiError(400, "Invalid ride ID.");
+  const next = request.body?.status;
+  const previous = {
+    DRIVER_ARRIVED: "MATCHED",
+    STARTED: "DRIVER_ARRIVED",
+    COMPLETED: "STARTED",
+  }[next];
+  if (!previous)
+    throw new ApiError(400, "Choose arrival, pickup, or drop-off.");
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const ride = await RideRequest.findById(request.params.id).session(
+        session,
+      );
+      if (!ride || ride.status !== previous)
+        throw new ApiError(
+          409,
+          "Passenger status changed or transition is invalid.",
+        );
+      const pool = await Pool.findOne({
+        _id: ride.pool,
+        driver: request.driver.id,
+        status: { $in: activeStatuses },
+      }).session(session);
+      if (!pool) throw new ApiError(404, "Booking is not in your active pool.");
+      if (!pool.routeCode)
+        throw new ApiError(
+          409,
+          "Use the older pool controls for this legacy trip.",
+        );
+      const member = pool.members.find(
+        (item) => String(item.request) === ride.id,
+      );
+      if (!member || member.status !== previous)
+        throw new ApiError(409, "Booking membership is inconsistent.");
+      const now = new Date();
+      // Manual buttons declare arrival/boarding/drop-off; no GPS or automatic status guessing.
+      if (next === "DRIVER_ARRIVED") {
+        // Lock the chat document against concurrent message writes, then delete it.
+        await RideChat.findOneAndDelete({ ride: ride.id }, { session });
+        ride.arrivedAt = now;
+      }
+      if (pool.routeCode === "graph-v1") {
+        // All location/progress changes serialize with acceptance via the Driver lock.
+        await Driver.findOneAndUpdate(
+          { _id: request.driver.id },
+          { $set: { lastOfferAcceptedAt: new Date() } },
+          { session },
+        );
+        const stopIndex =
+          next === "COMPLETED" ? member.destinationIndex : member.pickupIndex;
+        if (stopIndex < pool.currentStopIndex)
+          throw new ApiError(
+            409,
+            "This action would move behind the current stop.",
+          );
+        // Do not pass an assigned pickup, or an onboard Passenger's drop-off.
+        for (const other of pool.members) {
+          if (
+            String(other.request) === ride.id ||
+            ["COMPLETED", "CANCELLED"].includes(other.status)
+          )
+            continue;
+          const requiredStop =
+            other.status === "STARTED"
+              ? other.destinationIndex
+              : other.pickupIndex;
+          if (requiredStop < stopIndex)
+            throw new ApiError(409, "Handle the earlier Passenger stop first.");
+        }
+        if (next === "STARTED" || next === "COMPLETED") {
+          pool.currentStopIndex = stopIndex;
+          await Driver.updateOne(
+            { _id: request.driver.id },
+            {
+              $set: {
+                currentArea: pool.routeStops[stopIndex],
+                locationSource: "trip-action",
+                locationUpdatedAt: now,
+              },
+            },
+            { session },
+          );
+        }
+      }
+      if (next === "STARTED") {
+        if (pool.occupiedSeats + ride.seats > pool.capacity)
+          throw new ApiError(409, "Drop off passengers before boarding more.");
+        pool.occupiedSeats += ride.seats;
+        pool.status = "STARTED";
+        ride.pickedUpAt = now;
+      }
+      if (next === "COMPLETED") {
+        pool.occupiedSeats -= ride.seats;
+        ride.droppedOffAt = now;
+        ride.finalFarePaisa = hasSharedSegment(pool, ride)
+          ? ride.pooledFarePaisa
+          : ride.soloFarePaisa;
+        ride.paymentStatus = "due";
+        let paymentEvent = "PAYMENT_DUE";
+        if (ride.paymentMethod === "teslapay") {
+          ride.paymentStatus = "paid";
+          ride.paidAt = now;
+          paymentEvent = "PAYMENT_PAID";
+        }
+        ride.history.push({ status: paymentEvent, at: now });
+      }
+      member.status = next;
+      ride.status = next;
+      ride.history.push({ status: next, at: now });
+      pool.history.push({
+        status: next,
+        at: now,
+        request: ride.id,
+        passengerName: ride.passengerName,
+        seats: ride.seats,
+      });
+      if (
+        pool.members.every((item) =>
+          ["COMPLETED", "CANCELLED"].includes(item.status),
+        )
+      )
+        pool.status = "COMPLETED";
+      await pool.save({ session });
+      await ride.save({ session });
+    });
+  } finally {
+    await session.endSession();
+  }
+  if (next === "DRIVER_ARRIVED")
+    notifyChatClosed(request.app.locals.io, [request.params.id]);
+  response.json(
+    new ApiResponse(
+      200,
+      { ride: publicRide(await populatedRide(request.params.id)) },
+      "Passenger status updated.",
     ),
   );
 });
@@ -756,6 +777,11 @@ export const advancePool = asyncHandler(async (request, response) => {
         throw new ApiError(
           409,
           "Trip status changed or this is not your pool.",
+        );
+      if (pool.routeCode)
+        throw new ApiError(
+          409,
+          "Update each Passenger separately in this route-based pool.",
         );
       if (next === "DRIVER_ARRIVED") {
         closedRideIds = pool.members.map((member) => String(member.request));

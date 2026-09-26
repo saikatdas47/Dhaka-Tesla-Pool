@@ -211,11 +211,11 @@ test("only admin can review a pending driver", async () => {
     assert.equal(updatedFare.configured, true);
     assert.equal(
       fareQuote("Banani", "Mohakhali", 1, updatedFare).soloFarePaisa,
-      11000,
+      16000,
     );
     assert.equal(
       fareQuote("Banani", "Mohakhali", 1, updatedFare).pooledFarePaisa,
-      8250,
+      12000,
     );
     const passengerList = await fetch(
       `${base}/passengers?field=username&q=demo_nusrat`,

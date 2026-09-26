@@ -6,6 +6,7 @@ import {
 import {
   acceptRide,
   advancePool,
+  advancePassengerRide,
   cancelRide,
   confirmCashPayment,
   createRide,
@@ -13,6 +14,7 @@ import {
   driverOffers,
   driverPool,
   getRideConfig,
+  getRidePath,
   myRides,
   nearbyDrivers,
   quoteRide,
@@ -24,6 +26,7 @@ import {
 
 const router = Router();
 router.get("/config", getRideConfig);
+router.get("/path", getRidePath);
 router.post("/quote", verifyPassenger, quoteRide);
 router.post("/requests", verifyPassenger, createRide);
 router.get("/mine", verifyPassenger, myRides);
@@ -37,4 +40,5 @@ router.get("/driver/history", verifyDriver, driverHistory);
 router.post("/requests/:id/accept", verifyDriver, acceptRide);
 router.post("/requests/:id/confirm-cash", verifyDriver, confirmCashPayment);
 router.patch("/pools/:id/status", verifyDriver, advancePool);
+router.patch("/requests/:id/status", verifyDriver, advancePassengerRide);
 export default router;

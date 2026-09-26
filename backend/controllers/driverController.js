@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import Driver from "../models/Driver.js";
 import Passenger from "../models/Passenger.js";
@@ -320,70 +321,78 @@ export const updateDriverProfile = asyncHandler(async (request, response) => {
 export const updateDriverAvailability = asyncHandler(
   async (request, response) => {
     const { availability, currentArea } = request.body || {};
-    if (
-      Object.keys(request.body || {}).some(
-        (key) => !["availability", "currentArea"].includes(key),
-      )
-    )
-      throw new ApiError(
-        400,
-        "Only availability and current area can be updated here.",
-      );
-    if (
-      availability !== undefined &&
-      !["online", "offline"].includes(availability)
-    )
+    for (const key of Object.keys(request.body || {})) {
+      if (!["availability", "currentArea"].includes(key))
+        throw new ApiError(
+          400,
+          "Only initial area and availability can be selected.",
+        );
+    }
+    if (!["online", "offline"].includes(availability))
       throw new ApiError(400, "Choose online or offline.");
-    const area =
-      currentArea === undefined
-        ? request.driver.currentArea
-        : requireArea(currentArea);
-    const nextAvailability =
-      availability || request.driver.availability || "offline";
-    if (nextAvailability === "online" && !area)
-      throw new ApiError(400, "Choose your current area before going online.");
-    if (
-      nextAvailability === "online" &&
-      request.driver.verificationStatus !== "approved"
-    )
-      throw new ApiError(
-        403,
-        "Admin approval is required before going online.",
-      );
-    if (
-      nextAvailability === "online" &&
-      new Date(request.driver.licenseExpiry) <= new Date()
-    )
-      throw new ApiError(
-        403,
-        "Renew your driving licence before going online.",
-      );
-    if (
-      nextAvailability === "online" &&
-      (request.driver.passengerSeats < 2 || request.driver.passengerSeats > 4)
-    )
-      throw new ApiError(
-        403,
-        "Passenger seats must be between 2 and 4 before going online.",
-      );
-    const driver = await Driver.findByIdAndUpdate(
-      request.driver.id,
-      {
-        $set: {
-          availability: nextAvailability,
-          currentArea: area,
-          ...(currentArea !== undefined
-            ? { locationSource: "manual", locationUpdatedAt: new Date() }
-            : {}),
-        },
-      },
-      { returnDocument: "after", runValidators: true },
-    );
+    const session = await mongoose.startSession();
+    let driver;
+    try {
+      await session.withTransaction(async () => {
+        const locked = await Driver.findOneAndUpdate(
+          { _id: request.driver.id },
+          { $set: { lastOfferAcceptedAt: new Date() } },
+          { session, returnDocument: "after" },
+        );
+        const pool = await Pool.findOne({
+          driver: locked.id,
+          status: { $in: ["MATCHED", "DRIVER_ARRIVED", "STARTED"] },
+        }).session(session);
+        if (pool && availability === "offline")
+          throw new ApiError(
+            409,
+            "Finish accepted bookings before going offline.",
+          );
+        if (
+          pool &&
+          currentArea !== undefined &&
+          currentArea !== locked.currentArea
+        )
+          throw new ApiError(
+            409,
+            "During a trip, pickup/drop-off actions update location automatically.",
+          );
+        const area =
+          currentArea === undefined
+            ? locked.currentArea
+            : requireArea(currentArea);
+        if (availability === "online") {
+          if (!area) throw new ApiError(400, "Choose your starting area.");
+          if (
+            locked.verificationStatus !== "approved" ||
+            new Date(locked.licenseExpiry) <= new Date()
+          )
+            throw new ApiError(
+              403,
+              "Admin approval and valid licence are required.",
+            );
+        }
+        driver = await Driver.findByIdAndUpdate(
+          locked.id,
+          {
+            $set: {
+              availability,
+              currentArea: area,
+              locationSource: pool ? locked.locationSource : "manual",
+              locationUpdatedAt: new Date(),
+            },
+          },
+          { session, returnDocument: "after", runValidators: true },
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
     response.json(
       new ApiResponse(
         200,
         { driver: publicDriver(driver) },
-        "Driver location and availability updated.",
+        "Availability updated.",
       ),
     );
   },

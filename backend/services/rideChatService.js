@@ -19,7 +19,10 @@ export async function chatAccess(rideId, role, accountId) {
   else if (role === "driver")
     allowed = String(ride.pool?.driver) === String(accountId);
   if (!allowed) throw new ApiError(404, "Ride not found for this account.");
-  if (ride.status !== "MATCHED" || ride.pool?.status !== "MATCHED")
+  if (
+    ride.status !== "MATCHED" ||
+    !["MATCHED", "DRIVER_ARRIVED", "STARTED"].includes(ride.pool?.status)
+  )
     throw new ApiError(409, "Chat is available only until the driver arrives.");
   return ride;
 }
