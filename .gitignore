@@ -50,6 +50,7 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 dist/
+backend/public/
 build/
 .next/
 .nuxt/

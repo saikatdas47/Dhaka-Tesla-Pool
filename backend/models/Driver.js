@@ -6,8 +6,20 @@ import { randomUUID } from "node:crypto";
 const driverSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 80 },
-    username: { type: String, required: true, unique: true, trim: true, lowercase: true },
-    email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
     phone: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
     refreshTokenHash: { type: String, default: null, select: false },
@@ -16,22 +28,59 @@ const driverSchema = new mongoose.Schema(
     avatarUrl: { type: String, default: null },
     avatarPublicId: { type: String, default: null },
     pendingAvatarFilename: { type: String, default: null },
-    licenseNumber: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    licenseNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      uppercase: true,
+    },
     licenseExpiry: { type: Date, required: true },
-    vehicleModel: { type: String, required: true, enum: ["Model 3", "Model Y", "Model S", "Model X"] },
-    vehicleRegistrationNumber: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    vehicleModel: {
+      type: String,
+      required: true,
+      enum: ["Model 3", "Model Y", "Model S", "Model X"],
+    },
+    vehicleRegistrationNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      uppercase: true,
+    },
     vehicleColor: { type: String, required: true, trim: true },
     passengerSeats: { type: Number, required: true, min: 2, max: 4 },
     serviceArea: { type: String, required: true, trim: true },
-    availability: { type: String, enum: ["offline", "online"], default: "offline" },
+    availability: {
+      type: String,
+      enum: ["offline", "online"],
+      default: "offline",
+    },
     currentArea: { type: String, default: null },
-    locationSource: { type: String, enum: ["manual", "gps"], default: "manual" },
+    locationSource: {
+      type: String,
+      enum: ["manual", "gps"],
+      default: "manual",
+    },
     locationUpdatedAt: { type: Date, default: null },
     lastOfferAcceptedAt: { type: Date, default: null },
-    verificationStatus: { type: String, enum: ["pending", "approved", "rejected", "unverified"], default: "pending" },
-    verificationHistory: [{ status: { type: String, enum: ["pending", "approved", "rejected", "unverified"] }, at: Date, by: String }],
+    verificationStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected", "unverified"],
+      default: "pending",
+    },
+    verificationHistory: [
+      {
+        status: {
+          type: String,
+          enum: ["pending", "approved", "rejected", "unverified"],
+        },
+        at: Date,
+        by: String,
+      },
+    ],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 driverSchema.methods.comparePassword = function (password) {
@@ -39,17 +88,25 @@ driverSchema.methods.comparePassword = function (password) {
 };
 
 driverSchema.methods.generateAccessToken = function () {
-  return jwt.sign({ sub: this.id, role: "driver", tokenType: "access" }, process.env.AccessTokenSecret, {
-    algorithm: "HS256",
-    expiresIn: process.env.AccessTokenExpiresIn || "15m",
-  });
+  return jwt.sign(
+    { sub: this.id, role: "driver", tokenType: "access" },
+    process.env.AccessTokenSecret,
+    {
+      algorithm: "HS256",
+      expiresIn: process.env.AccessTokenExpiresIn || "15m",
+    },
+  );
 };
 
 driverSchema.methods.generateRefreshToken = function () {
-  return jwt.sign({ sub: this.id, role: "driver", tokenType: "refresh", nonce: randomUUID() }, process.env.RefreshTokenSecret, {
-    algorithm: "HS256",
-    expiresIn: process.env.RefreshTokenExpiresIn || "7d",
-  });
+  return jwt.sign(
+    { sub: this.id, role: "driver", tokenType: "refresh", nonce: randomUUID() },
+    process.env.RefreshTokenSecret,
+    {
+      algorithm: "HS256",
+      expiresIn: process.env.RefreshTokenExpiresIn || "7d",
+    },
+  );
 };
 
 export default mongoose.model("Driver", driverSchema);

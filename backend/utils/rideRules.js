@@ -20,24 +20,53 @@ const corridors = [
 ];
 
 export function requireArea(value) {
-  if (typeof value !== "string" || !Object.hasOwn(areas, value)) throw new ApiError(400, "Choose a listed Dhaka area.");
+  if (typeof value !== "string" || !Object.hasOwn(areas, value))
+    throw new ApiError(400, "Choose a listed Dhaka area.");
   return value;
 }
 
 export function compatibleRoutes(first, second) {
-  return first.pickupArea === second.pickupArea && corridors.some((corridor) =>
-    corridor.includes(first.pickupArea) && corridor.includes(first.destinationArea) && corridor.includes(second.destinationArea)
+  return (
+    first.pickupArea === second.pickupArea &&
+    corridors.some(
+      (corridor) =>
+        corridor.includes(first.pickupArea) &&
+        corridor.includes(first.destinationArea) &&
+        corridor.includes(second.destinationArea),
+    )
   );
 }
 
-export function fareQuote(pickupArea, destinationArea, seats, settings = defaultFareSettings) {
+export function fareQuote(
+  pickupArea,
+  destinationArea,
+  seats,
+  settings = defaultFareSettings,
+) {
   requireArea(pickupArea);
   requireArea(destinationArea);
-  if (pickupArea === destinationArea) throw new ApiError(400, "Pickup and destination must differ.");
-  if (!Number.isInteger(seats) || seats < 1 || seats > 4) throw new ApiError(400, "Request 1 to 4 seats.");
+  if (pickupArea === destinationArea)
+    throw new ApiError(400, "Pickup and destination must differ.");
+  if (!Number.isInteger(seats) || seats < 1 || seats > 4)
+    throw new ApiError(400, "Request 1 to 4 seats.");
   const [aLat, aLng] = areas[pickupArea];
   const [bLat, bLng] = areas[destinationArea];
-  const approximateKm = Math.max(1, Math.round(Math.hypot((aLat - bLat) * 111, (aLng - bLng) * 102)));
-  const soloFarePaisa = (settings.baseFarePaisa + approximateKm * settings.perKmPaisa) * seats;
-  return { approximateKm, soloFarePaisa, pooledFarePaisa: Math.round(soloFarePaisa * (100 - settings.sharedDiscountPercent) / 100), fareRule: { baseFarePaisa: settings.baseFarePaisa, perKmPaisa: settings.perKmPaisa, sharedDiscountPercent: settings.sharedDiscountPercent } };
+  const approximateKm = Math.max(
+    1,
+    Math.round(Math.hypot((aLat - bLat) * 111, (aLng - bLng) * 102)),
+  );
+  const soloFarePaisa =
+    (settings.baseFarePaisa + approximateKm * settings.perKmPaisa) * seats;
+  return {
+    approximateKm,
+    soloFarePaisa,
+    pooledFarePaisa: Math.round(
+      (soloFarePaisa * (100 - settings.sharedDiscountPercent)) / 100,
+    ),
+    fareRule: {
+      baseFarePaisa: settings.baseFarePaisa,
+      perKmPaisa: settings.perKmPaisa,
+      sharedDiscountPercent: settings.sharedDiscountPercent,
+    },
+  };
 }

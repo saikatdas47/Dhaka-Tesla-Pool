@@ -14,7 +14,10 @@ import { ApiError } from "./utils/apiError.js";
 import { ApiResponse } from "./utils/apiResponse.js";
 
 const app = express();
-const publicDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
+const publicDirectory = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "public",
+);
 app.locals.databaseReady = false;
 
 app.disable("x-powered-by");
@@ -22,7 +25,8 @@ app.use(express.json({ limit: "16kb" }));
 app.use(cookieParser());
 
 app.get("/health", (_request, response) => {
-  const connected = mongoose.connection.readyState === 1 && app.locals.databaseReady;
+  const connected =
+    mongoose.connection.readyState === 1 && app.locals.databaseReady;
   response.status(connected ? 200 : 503).json({
     status: connected ? "ok" : "unavailable",
     database: connected ? "connected" : "disconnected",
@@ -30,9 +34,18 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/api", (request, response, next) => {
-  const needsDatabase = /^\/(passengers|drivers|email-otp|admin|rides)(\/|$)/.test(request.path);
+  const needsDatabase =
+    /^\/(passengers|drivers|email-otp|admin|rides)(\/|$)/.test(request.path);
   if (needsDatabase && !app.locals.databaseReady) {
-    return response.status(503).json(new ApiResponse(503, null, "Database is temporarily unavailable. Please try again shortly."));
+    return response
+      .status(503)
+      .json(
+        new ApiResponse(
+          503,
+          null,
+          "Database is temporarily unavailable. Please try again shortly.",
+        ),
+      );
   }
   next();
 });
@@ -45,7 +58,10 @@ app.use("/api/rides", rideRoutes);
 app.get("/api/demo-accounts", (_request, response) => {
   response.set("Cache-Control", "no-store");
   const accounts = publicDemoAccounts();
-  if (!accounts) return response.status(404).json(new ApiResponse(404, null, "Demo accounts are disabled."));
+  if (!accounts)
+    return response
+      .status(404)
+      .json(new ApiResponse(404, null, "Demo accounts are disabled."));
   response.json(new ApiResponse(200, accounts, "Local demo accounts."));
 });
 app.use("/api", (_request, response) => {
@@ -63,16 +79,34 @@ app.use((request, response) => {
 app.use((error, _request, response, _next) => {
   if (error instanceof multer.MulterError) {
     const status = error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
-    return response.status(status).json(new ApiResponse(status, null, error.code === "LIMIT_FILE_SIZE" ? "Image must be 5 MB or smaller." : "Upload only one image using the avatar field."));
+    return response
+      .status(status)
+      .json(
+        new ApiResponse(
+          status,
+          null,
+          error.code === "LIMIT_FILE_SIZE"
+            ? "Image must be 5 MB or smaller."
+            : "Upload only one image using the avatar field.",
+        ),
+      );
   }
   if (error instanceof ApiError) {
-    return response.status(error.statusCode).json(new ApiResponse(error.statusCode, null, error.message));
+    return response
+      .status(error.statusCode)
+      .json(new ApiResponse(error.statusCode, null, error.message));
   }
   if (error instanceof SyntaxError && "body" in error) {
-    return response.status(400).json(new ApiResponse(400, null, "Invalid JSON request."));
+    return response
+      .status(400)
+      .json(new ApiResponse(400, null, "Invalid JSON request."));
   }
   console.error("Request failed:", error);
-  response.status(500).json(new ApiResponse(500, null, "Something went wrong. Please try again."));
+  response
+    .status(500)
+    .json(
+      new ApiResponse(500, null, "Something went wrong. Please try again."),
+    );
 });
 
 export default app;

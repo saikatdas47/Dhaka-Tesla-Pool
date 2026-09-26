@@ -7,8 +7,16 @@ export async function sendOtpEmail({ email, otp }) {
   const password = process.env.EMAIL_APP_PASSWORD;
   if (!user || !password) throw new Error("Email sender is not configured.");
 
-  transporter ||= nodemailer.createTransport({ service: "gmail", auth: { user, pass: password } });
-  const fromName = (process.env.EMAIL_FROM_NAME || "Dhaka Tesla Pool").replace(/[\r\n"]/g, "");
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass: password },
+    });
+  }
+  const fromName = (process.env.EMAIL_FROM_NAME || "Dhaka Tesla Pool").replace(
+    /[\r\n"]/g,
+    "",
+  );
   await transporter.sendMail({
     from: `"${fromName}" <${user}>`,
     to: email,

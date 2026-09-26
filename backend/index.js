@@ -8,7 +8,11 @@ import Pool from "./models/Pool.js";
 import RideRequest from "./models/RideRequest.js";
 import RideChat from "./models/RideChat.js";
 import DriverReview from "./models/DriverReview.js";
-import { durationMs, accessExpiry, refreshExpiry } from "./utils/tokenConfig.js";
+import {
+  durationMs,
+  accessExpiry,
+  refreshExpiry,
+} from "./utils/tokenConfig.js";
 import { seedDemoAccounts } from "./config/demoAccounts.js";
 import app from "./app.js";
 import { attachRideSockets } from "./socket.js";
@@ -21,18 +25,52 @@ function checkConfiguration() {
   if (!mongoUri || mongoUri.includes("USERNAME:PASSWORD@CLUSTER_HOST")) {
     throw new Error("Set your MongoDB Atlas MONGODB_URI in backend/.env.");
   }
-  if (!jwtSecret || Buffer.byteLength(jwtSecret) < 32 || jwtSecret.startsWith("replace_this")) {
-    throw new Error("Set a unique JWT_SECRET of at least 32 bytes in backend/.env.");
+  if (
+    !jwtSecret ||
+    Buffer.byteLength(jwtSecret) < 32 ||
+    jwtSecret.startsWith("replace_this")
+  ) {
+    throw new Error(
+      "Set a unique JWT_SECRET of at least 32 bytes in backend/.env.",
+    );
   }
-  if (!process.env.AccessTokenSecret || Buffer.byteLength(process.env.AccessTokenSecret) < 32 || process.env.AccessTokenSecret.startsWith("replace_") || !process.env.RefreshTokenSecret || Buffer.byteLength(process.env.RefreshTokenSecret) < 32 || process.env.RefreshTokenSecret.startsWith("replace_") || process.env.AccessTokenSecret === process.env.RefreshTokenSecret || process.env.AccessTokenSecret === jwtSecret || process.env.RefreshTokenSecret === jwtSecret) {
-    throw new Error("Set distinct AccessTokenSecret and RefreshTokenSecret values of at least 32 bytes.");
+  const secrets = [
+    jwtSecret,
+    process.env.AccessTokenSecret,
+    process.env.RefreshTokenSecret,
+  ];
+  for (const secret of secrets) {
+    if (
+      !secret ||
+      Buffer.byteLength(secret) < 32 ||
+      secret.startsWith("replace_") ||
+      secret.startsWith("dummy-")
+    ) {
+      throw new Error(
+        "Set JWT_SECRET, AccessTokenSecret and RefreshTokenSecret to distinct values of at least 32 bytes.",
+      );
+    }
+  }
+  if (new Set(secrets).size !== secrets.length) {
+    throw new Error(
+      "JWT_SECRET, AccessTokenSecret and RefreshTokenSecret must be different.",
+    );
   }
   durationMs(accessExpiry());
   durationMs(refreshExpiry());
-  if (!process.env.EMAIL_USER || process.env.EMAIL_USER.startsWith("your_") || !process.env.EMAIL_APP_PASSWORD || process.env.EMAIL_APP_PASSWORD.startsWith("your_") || !process.env.OTP_SECRET || process.env.OTP_SECRET.length < 16 || process.env.OTP_SECRET.startsWith("replace_")) {
-    throw new Error("Set EMAIL_USER, EMAIL_APP_PASSWORD, and OTP_SECRET in backend/.env.");
+  if (
+    !process.env.EMAIL_USER ||
+    process.env.EMAIL_USER.startsWith("your_") ||
+    !process.env.EMAIL_APP_PASSWORD ||
+    process.env.EMAIL_APP_PASSWORD.startsWith("your_") ||
+    !process.env.OTP_SECRET ||
+    process.env.OTP_SECRET.length < 16 ||
+    process.env.OTP_SECRET.startsWith("replace_")
+  ) {
+    throw new Error(
+      "Set EMAIL_USER, EMAIL_APP_PASSWORD, and OTP_SECRET in backend/.env.",
+    );
   }
-
 }
 
 async function start() {
@@ -73,11 +111,17 @@ async function start() {
     } catch (error) {
       app.locals.databaseReady = false;
       databaseInitialized = false;
-      const serverErrors = [...(error.reason?.servers?.values() || [])]
-        .map((server) => server.error?.cause?.code || server.error?.code)
-        .filter(Boolean);
-      const reason = [...new Set(serverErrors)].join(", ") || error.codeName || error.name;
-      console.error(`MongoDB connection failed (${reason}). Retrying in ${retryDelayMs / 1000} seconds.`);
+      const serverErrors = [];
+      if (error.reason?.servers) {
+        for (const server of error.reason.servers.values()) {
+          const code = server.error?.cause?.code || server.error?.code;
+          if (code && !serverErrors.includes(code)) serverErrors.push(code);
+        }
+      }
+      const reason = serverErrors.join(", ") || error.codeName || error.name;
+      console.error(
+        `MongoDB connection failed (${reason}). Retrying in ${retryDelayMs / 1000} seconds.`,
+      );
       await mongoose.disconnect().catch(() => {});
       if (!stopping) retryTimer = setTimeout(connectDatabase, retryDelayMs);
     }

@@ -1,3 +1,5 @@
 import path from "node:path";
 
-export const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
+export const uploadDirectory = path.resolve(
+  process.env.UPLOAD_DIR || "uploads",
+);

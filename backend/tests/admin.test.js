@@ -24,18 +24,42 @@ test("only admin can review a pending driver", async () => {
   const originalFareUpdate = FareSettings.findOneAndUpdate;
   process.env.ADMIN_USERNAME = "test_admin";
   process.env.ADMIN_PASSWORD = "test-admin-password-123456";
-  process.env.AccessTokenSecret = "test-access-secret-longer-than-thirty-two-bytes";
+  process.env.AccessTokenSecret =
+    "test-access-secret-longer-than-thirty-two-bytes";
   process.env.ENABLE_ADMIN_AUTOFILL = "true";
   process.env.ENABLE_DEMO_ACCOUNTS = "true";
   process.env.NODE_ENV = "test";
   app.locals.databaseReady = true;
   const id = "507f1f77bcf86cd799439022";
-  const driver = { id, name: "Jashim", username: "demo_jashim", verificationStatus: "pending", availability: "online", verificationHistory: [] };
-  const passenger = { id, name: "Nusrat", username: "demo_nusrat", email: "nusrat@example.test", phone: "01700000000", passwordHash: "private", refreshTokenHash: "private", avatarPublicId: "private", rides: [{ secret: true }] };
+  const driver = {
+    id,
+    name: "Jashim",
+    username: "demo_jashim",
+    verificationStatus: "pending",
+    availability: "online",
+    verificationHistory: [],
+  };
+  const passenger = {
+    id,
+    name: "Nusrat",
+    username: "demo_nusrat",
+    email: "nusrat@example.test",
+    phone: "01700000000",
+    passwordHash: "private",
+    refreshTokenHash: "private",
+    avatarPublicId: "private",
+    rides: [{ secret: true }],
+  };
   let passengerFilter;
-  Passenger.find = (filter) => { passengerFilter = filter; return { sort: () => ({ skip: () => ({ limit: async () => [passenger] }) }) }; };
+  Passenger.find = (filter) => {
+    passengerFilter = filter;
+    return {
+      sort: () => ({ skip: () => ({ limit: async () => [passenger] }) }),
+    };
+  };
   Passenger.countDocuments = async () => 1;
-  Passenger.findById = async (candidate) => candidate === id ? passenger : null;
+  Passenger.findById = async (candidate) =>
+    candidate === id ? passenger : null;
   let savedFare = null;
   FareSettings.findById = () => ({ lean: async () => savedFare });
   FareSettings.findOneAndUpdate = async (filter, update) => {
@@ -44,11 +68,28 @@ test("only admin can review a pending driver", async () => {
     return savedFare;
   };
   let lastFilter;
-  Driver.find = (filter) => { lastFilter = filter; return { sort: () => ({ skip: () => ({ limit: async () => filter.verificationStatus?.$in && !filter.verificationStatus.$in.includes(driver.verificationStatus) ? [] : [driver] }) }) }; };
+  Driver.find = (filter) => {
+    lastFilter = filter;
+    return {
+      sort: () => ({
+        skip: () => ({
+          limit: async () =>
+            filter.verificationStatus?.$in &&
+            !filter.verificationStatus.$in.includes(driver.verificationStatus)
+              ? []
+              : [driver],
+        }),
+      }),
+    };
+  };
   Driver.countDocuments = async () => 1;
-  Driver.findById = async (candidate) => candidate === id ? driver : null;
+  Driver.findById = async (candidate) => (candidate === id ? driver : null);
   Driver.findOneAndUpdate = async (filter, update) => {
-    if (filter._id !== id || !filter.verificationStatus.$in.includes(driver.verificationStatus)) return null;
+    if (
+      filter._id !== id ||
+      !filter.verificationStatus.$in.includes(driver.verificationStatus)
+    )
+      return null;
     Object.assign(driver, update.$set);
     driver.verificationHistory.push(update.$push.verificationHistory);
     return driver;
@@ -59,74 +100,211 @@ test("only admin can review a pending driver", async () => {
   try {
     const autofill = await fetch(`${base}/local-autofill`);
     assert.equal(autofill.status, 200);
-    assert.deepEqual((await autofill.json()).data, { username: "test_admin", password: "test-admin-password-123456" });
+    assert.deepEqual((await autofill.json()).data, {
+      username: "test_admin",
+      password: "test-admin-password-123456",
+    });
     process.env.NODE_ENV = "production";
     assert.equal((await fetch(`${base}/local-autofill`)).status, 404);
     process.env.NODE_ENV = "test";
-    const anonymous = await fetch(`${base}/drivers/${id}/verification`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "approved" }) });
+    const anonymous = await fetch(`${base}/drivers/${id}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "approved" }),
+    });
     assert.equal(anonymous.status, 401);
     assert.equal((await fetch(`${base}/drivers/${id}`)).status, 401);
     assert.equal((await fetch(`${base}/passengers`)).status, 401);
     assert.equal((await fetch(`${base}/passengers/${id}`)).status, 401);
     assert.equal((await fetch(`${base}/fare-settings`)).status, 401);
-    assert.equal((await fetch(`${base}/fare-settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 401);
-    const wrong = await fetch(`${base}/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "test_admin", password: "wrong" }) });
+    assert.equal(
+      (
+        await fetch(`${base}/fare-settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        })
+      ).status,
+      401,
+    );
+    const wrong = await fetch(`${base}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "test_admin", password: "wrong" }),
+    });
     assert.equal(wrong.status, 401);
-    const login = await fetch(`${base}/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "test_admin", password: "test-admin-password-123456" }) });
+    const login = await fetch(`${base}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "test_admin",
+        password: "test-admin-password-123456",
+      }),
+    });
     assert.equal(login.status, 200);
-    const cookie = login.headers.getSetCookie().find((value) => value.startsWith("tesla_pool_admin_session=")).split(";")[0];
-    const defaultFare = (await (await fetch(`${base}/fare-settings`, { headers: { Cookie: cookie } })).json()).data;
-    assert.deepEqual([defaultFare.baseFarePaisa, defaultFare.perKmPaisa, defaultFare.sharedDiscountPercent, defaultFare.configured], [5000, 2000, 20, false]);
+    const cookie = login.headers
+      .getSetCookie()
+      .find((value) => value.startsWith("tesla_pool_admin_session="))
+      .split(";")[0];
+    const defaultFare = (
+      await (
+        await fetch(`${base}/fare-settings`, { headers: { Cookie: cookie } })
+      ).json()
+    ).data;
+    assert.deepEqual(
+      [
+        defaultFare.baseFarePaisa,
+        defaultFare.perKmPaisa,
+        defaultFare.sharedDiscountPercent,
+        defaultFare.configured,
+      ],
+      [5000, 2000, 20, false],
+    );
     const fareHeaders = { "Content-Type": "application/json", Cookie: cookie };
-    assert.equal((await fetch(`${base}/fare-settings`, { method: "PUT", headers: fareHeaders, body: JSON.stringify({ baseFarePaisa: -1, perKmPaisa: 2000, sharedDiscountPercent: 20 }) })).status, 400);
-    assert.equal((await fetch(`${base}/fare-settings`, { method: "PUT", headers: fareHeaders, body: JSON.stringify({ baseFarePaisa: 5000.5, perKmPaisa: 2000, sharedDiscountPercent: 20 }) })).status, 400);
-    assert.equal((await fetch(`${base}/fare-settings`, { method: "PUT", headers: fareHeaders, body: JSON.stringify({ baseFarePaisa: 6000, perKmPaisa: 2500, sharedDiscountPercent: 25 }) })).status, 200);
-    const updatedFare = (await (await fetch(`${base}/fare-settings`, { headers: { Cookie: cookie } })).json()).data;
+    assert.equal(
+      (
+        await fetch(`${base}/fare-settings`, {
+          method: "PUT",
+          headers: fareHeaders,
+          body: JSON.stringify({
+            baseFarePaisa: -1,
+            perKmPaisa: 2000,
+            sharedDiscountPercent: 20,
+          }),
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/fare-settings`, {
+          method: "PUT",
+          headers: fareHeaders,
+          body: JSON.stringify({
+            baseFarePaisa: 5000.5,
+            perKmPaisa: 2000,
+            sharedDiscountPercent: 20,
+          }),
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/fare-settings`, {
+          method: "PUT",
+          headers: fareHeaders,
+          body: JSON.stringify({
+            baseFarePaisa: 6000,
+            perKmPaisa: 2500,
+            sharedDiscountPercent: 25,
+          }),
+        })
+      ).status,
+      200,
+    );
+    const updatedFare = (
+      await (
+        await fetch(`${base}/fare-settings`, { headers: { Cookie: cookie } })
+      ).json()
+    ).data;
     assert.equal(updatedFare.configured, true);
-    assert.equal(fareQuote("Banani", "Mohakhali", 1, updatedFare).soloFarePaisa, 11000);
-    assert.equal(fareQuote("Banani", "Mohakhali", 1, updatedFare).pooledFarePaisa, 8250);
-    const passengerList = await fetch(`${base}/passengers?field=username&q=demo_nusrat`, { headers: { Cookie: cookie } });
+    assert.equal(
+      fareQuote("Banani", "Mohakhali", 1, updatedFare).soloFarePaisa,
+      11000,
+    );
+    assert.equal(
+      fareQuote("Banani", "Mohakhali", 1, updatedFare).pooledFarePaisa,
+      8250,
+    );
+    const passengerList = await fetch(
+      `${base}/passengers?field=username&q=demo_nusrat`,
+      { headers: { Cookie: cookie } },
+    );
     assert.equal(passengerList.status, 200);
     const listedPassenger = (await passengerList.json()).data.passengers[0];
     assert.equal(listedPassenger.name, "Nusrat");
     assert.equal(Object.hasOwn(listedPassenger, "rides"), false);
     assert.equal(Object.hasOwn(listedPassenger, "passwordHash"), false);
     assert.equal(passengerFilter.username.test("demo_nusrat"), true);
-    const passengerDetail = await fetch(`${base}/passengers/${id}`, { headers: { Cookie: cookie } });
+    const passengerDetail = await fetch(`${base}/passengers/${id}`, {
+      headers: { Cookie: cookie },
+    });
     assert.equal(passengerDetail.status, 200);
     const visiblePassenger = (await passengerDetail.json()).data.passenger;
     assert.equal(visiblePassenger.phone, "01700000000");
     assert.equal(Object.hasOwn(visiblePassenger, "rides"), false);
     assert.equal(Object.hasOwn(visiblePassenger, "refreshTokenHash"), false);
     assert.equal(Object.hasOwn(visiblePassenger, "avatarPublicId"), false);
-    assert.equal((await fetch(`${base}/passengers?field=licence`, { headers: { Cookie: cookie } })).status, 400);
-    assert.equal((await fetch(`${base}/passengers/not-an-id`, { headers: { Cookie: cookie } })).status, 400);
-    const details = await fetch(`${base}/drivers/${id}`, { headers: { Cookie: cookie } });
+    assert.equal(
+      (
+        await fetch(`${base}/passengers?field=licence`, {
+          headers: { Cookie: cookie },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/passengers/not-an-id`, {
+          headers: { Cookie: cookie },
+        })
+      ).status,
+      400,
+    );
+    const details = await fetch(`${base}/drivers/${id}`, {
+      headers: { Cookie: cookie },
+    });
     assert.equal(details.status, 200);
     assert.equal((await details.json()).data.driver.name, "Jashim");
-    const pending = await fetch(`${base}/drivers/pending`, { headers: { Cookie: cookie } });
+    const pending = await fetch(`${base}/drivers/pending`, {
+      headers: { Cookie: cookie },
+    });
     assert.equal((await pending.json()).data.drivers.length, 1);
-    const beforeApproval = await fetch(`${base}/drivers`, { headers: { Cookie: cookie } });
+    const beforeApproval = await fetch(`${base}/drivers`, {
+      headers: { Cookie: cookie },
+    });
     assert.equal((await beforeApproval.json()).data.drivers.length, 1);
-    const approved = await fetch(`${base}/drivers/${id}/verification`, { method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ status: "approved" }) });
+    const approved = await fetch(`${base}/drivers/${id}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
     assert.equal(approved.status, 200);
     assert.equal(driver.verificationStatus, "approved");
-    const filtered = await fetch(`${base}/drivers?field=username&q=demo_jashim&seats=2`, { headers: { Cookie: cookie } });
+    const filtered = await fetch(
+      `${base}/drivers?field=username&q=demo_jashim&seats=2`,
+      { headers: { Cookie: cookie } },
+    );
     assert.equal(filtered.status, 200);
     assert.equal((await filtered.json()).data.drivers.length, 1);
     assert.equal(lastFilter.verificationStatus, undefined);
     assert.equal(lastFilter.passengerSeats, 2);
     assert.equal(lastFilter.username.test("demo_jashim"), true);
-    const badSeats = await fetch(`${base}/drivers?seats=5`, { headers: { Cookie: cookie } });
+    const badSeats = await fetch(`${base}/drivers?seats=5`, {
+      headers: { Cookie: cookie },
+    });
     assert.equal(badSeats.status, 400);
-    const repeat = await fetch(`${base}/drivers/${id}/verification`, { method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ status: "rejected" }) });
+    const repeat = await fetch(`${base}/drivers/${id}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "rejected" }),
+    });
     assert.equal(repeat.status, 409);
-    const revoked = await fetch(`${base}/drivers/${id}/verification`, { method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ status: "unverified" }) });
+    const revoked = await fetch(`${base}/drivers/${id}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "unverified" }),
+    });
     assert.equal(revoked.status, 200);
     assert.equal(driver.verificationStatus, "unverified");
     assert.equal(driver.availability, "offline");
     assert.equal(driver.verificationHistory.length, 2);
-    const reapproved = await fetch(`${base}/drivers/${id}/verification`, { method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ status: "approved" }) });
+    const reapproved = await fetch(`${base}/drivers/${id}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
     assert.equal(reapproved.status, 200);
   } finally {
     Driver.find = originalFind;
@@ -138,12 +316,18 @@ test("only admin can review a pending driver", async () => {
     Passenger.findById = originalPassengerFindById;
     FareSettings.findById = originalFareFindById;
     FareSettings.findOneAndUpdate = originalFareUpdate;
-    if (oldUsername === undefined) delete process.env.ADMIN_USERNAME; else process.env.ADMIN_USERNAME = oldUsername;
-    if (oldPassword === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = oldPassword;
-    if (oldSecret === undefined) delete process.env.AccessTokenSecret; else process.env.AccessTokenSecret = oldSecret;
-    if (oldAutofill === undefined) delete process.env.ENABLE_ADMIN_AUTOFILL; else process.env.ENABLE_ADMIN_AUTOFILL = oldAutofill;
-    if (oldDemos === undefined) delete process.env.ENABLE_DEMO_ACCOUNTS; else process.env.ENABLE_DEMO_ACCOUNTS = oldDemos;
-    if (oldNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = oldNodeEnv;
+    if (oldUsername === undefined) delete process.env.ADMIN_USERNAME;
+    else process.env.ADMIN_USERNAME = oldUsername;
+    if (oldPassword === undefined) delete process.env.ADMIN_PASSWORD;
+    else process.env.ADMIN_PASSWORD = oldPassword;
+    if (oldSecret === undefined) delete process.env.AccessTokenSecret;
+    else process.env.AccessTokenSecret = oldSecret;
+    if (oldAutofill === undefined) delete process.env.ENABLE_ADMIN_AUTOFILL;
+    else process.env.ENABLE_ADMIN_AUTOFILL = oldAutofill;
+    if (oldDemos === undefined) delete process.env.ENABLE_DEMO_ACCOUNTS;
+    else process.env.ENABLE_DEMO_ACCOUNTS = oldDemos;
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
     await new Promise((resolve) => server.close(resolve));
   }
 });

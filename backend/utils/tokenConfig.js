@@ -10,8 +10,11 @@ export const refreshCookieNames = {
 
 export function durationMs(value) {
   const match = /^(\d+)([mhd])$/.exec(value);
-  if (!match) throw new Error("Token expiry must use m, h, or d, for example 15m or 7d.");
-  const unit = { m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 }[match[2]];
+  if (!match)
+    throw new Error("Token expiry must use m, h, or d, for example 15m or 7d.");
+  const unit = { m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 }[
+    match[2]
+  ];
   return Number(match[1]) * unit;
 }
 
@@ -24,11 +27,12 @@ export function refreshExpiry() {
 }
 
 export function cookieOptions(maxAge) {
-  return {
+  const options = {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE === "true",
     path: "/",
-    ...(maxAge === undefined ? {} : { maxAge }),
   };
+  if (maxAge !== undefined) options.maxAge = maxAge;
+  return options;
 }

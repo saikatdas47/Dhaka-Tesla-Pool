@@ -7,8 +7,10 @@ import EmailOtp from "../models/EmailOtp.js";
 import app from "../app.js";
 
 process.env.JWT_SECRET = "test-only-secret-longer-than-thirty-two-bytes";
-process.env.AccessTokenSecret = "test-access-secret-longer-than-thirty-two-bytes";
-process.env.RefreshTokenSecret = "test-refresh-secret-longer-than-thirty-two-bytes";
+process.env.AccessTokenSecret =
+  "test-access-secret-longer-than-thirty-two-bytes";
+process.env.RefreshTokenSecret =
+  "test-refresh-secret-longer-than-thirty-two-bytes";
 
 function testServer() {
   app.locals.databaseReady = true;
@@ -17,10 +19,13 @@ function testServer() {
 
 async function request(server, path, options = {}) {
   const address = server.address();
-  const response = await fetch(`http://127.0.0.1:${address.port}/api/passengers${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
-  });
+  const response = await fetch(
+    `http://127.0.0.1:${address.port}/api/passengers${path}`,
+    {
+      ...options,
+      headers: { "Content-Type": "application/json", ...options.headers },
+    },
+  );
   return { response, body: await response.json() };
 }
 
@@ -49,16 +54,35 @@ test("registration, duplicate account, login, session, and logout", async () => 
   let refreshTokenHash;
 
   try {
-    Passenger.exists = async ({ $or, email }) => Boolean(savedEmail) && (email === savedEmail || $or?.some((item) => item.email === savedEmail || item.username === fakePassenger.username));
+    Passenger.exists = async ({ $or, email }) =>
+      Boolean(savedEmail) &&
+      (email === savedEmail ||
+        $or?.some(
+          (item) =>
+            item.email === savedEmail ||
+            item.username === fakePassenger.username,
+        ));
     Passenger.create = async (data) => {
       savedEmail = data.email;
       savedHash = data.passwordHash;
       return fakePassenger;
     };
     Passenger.findOne = ({ $or }) => ({
-      select: async () => Boolean(savedEmail) && $or.some((item) => item.email === savedEmail || item.username === fakePassenger.username) ? new Passenger({ ...fakePassenger.toObject(), passwordHash: savedHash }) : null,
+      select: async () =>
+        Boolean(savedEmail) &&
+        $or.some(
+          (item) =>
+            item.email === savedEmail ||
+            item.username === fakePassenger.username,
+        )
+          ? new Passenger({
+              ...fakePassenger.toObject(),
+              passwordHash: savedHash,
+            })
+          : null,
     });
-    Passenger.findById = async (id) => id === fakePassenger.id ? fakePassenger : null;
+    Passenger.findById = async (id) =>
+      id === fakePassenger.id ? fakePassenger : null;
     Passenger.findByIdAndUpdate = async (id, update) => {
       if (id !== fakePassenger.id) return null;
       Object.assign(fakePassenger, update.$set);
@@ -77,7 +101,8 @@ test("registration, duplicate account, login, session, and logout", async () => 
       fakePassenger.username = update.$set.username;
       return fakePassenger;
     };
-    EmailOtp.findOneAndDelete = async ({ role, email }) => role === "passenger" && email === fakePassenger.email ? {} : null;
+    EmailOtp.findOneAndDelete = async ({ role, email }) =>
+      role === "passenger" && email === fakePassenger.email ? {} : null;
 
     const invalid = await request(server, "/register", {
       method: "POST",
@@ -87,7 +112,14 @@ test("registration, duplicate account, login, session, and logout", async () => 
 
     const registered = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: "NUSRAT@example.com", phone: fakePassenger.phone, password: "strong-password", registrationToken: "a".repeat(64) }),
+      body: JSON.stringify({
+        name: fakePassenger.name,
+        username: fakePassenger.username,
+        email: "NUSRAT@example.com",
+        phone: fakePassenger.phone,
+        password: "strong-password",
+        registrationToken: "a".repeat(64),
+      }),
     });
     assert.equal(registered.response.status, 201);
     assert.equal(registered.body.data.passenger.email, fakePassenger.email);
@@ -103,65 +135,133 @@ test("registration, duplicate account, login, session, and logout", async () => 
 
     const duplicate = await request(server, "/register", {
       method: "POST",
-      body: JSON.stringify({ name: fakePassenger.name, username: fakePassenger.username, email: fakePassenger.email, phone: fakePassenger.phone, password: "strong-password" }),
+      body: JSON.stringify({
+        name: fakePassenger.name,
+        username: fakePassenger.username,
+        email: fakePassenger.email,
+        phone: fakePassenger.phone,
+        password: "strong-password",
+      }),
     });
     assert.equal(duplicate.response.status, 409);
 
     const wrongPassword = await request(server, "/login", {
       method: "POST",
-      body: JSON.stringify({ email: fakePassenger.email, password: "wrong-password" }),
+      body: JSON.stringify({
+        email: fakePassenger.email,
+        password: "wrong-password",
+      }),
     });
     assert.equal(wrongPassword.response.status, 401);
 
     const loggedIn = await request(server, "/login", {
       method: "POST",
-      body: JSON.stringify({ email: fakePassenger.email, password: "strong-password" }),
+      body: JSON.stringify({
+        email: fakePassenger.email,
+        password: "strong-password",
+      }),
     });
     assert.equal(loggedIn.response.status, 200);
     const usernameLogin = await request(server, "/login", {
       method: "POST",
-      body: JSON.stringify({ identity: fakePassenger.username, password: "strong-password" }),
+      body: JSON.stringify({
+        identity: fakePassenger.username,
+        password: "strong-password",
+      }),
     });
     assert.equal(usernameLogin.response.status, 200);
-    const latestCookies = usernameLogin.response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
-    const refreshCookie = latestCookies.split("; ").find((value) => value.startsWith("tesla_pool_passenger_refresh="));
-    const refreshAsAccess = await request(server, "/me", { headers: { Authorization: `Bearer ${refreshCookie.split("=")[1]}` } });
+    const latestCookies = usernameLogin.response.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const refreshCookie = latestCookies
+      .split("; ")
+      .find((value) => value.startsWith("tesla_pool_passenger_refresh="));
+    const refreshAsAccess = await request(server, "/me", {
+      headers: { Authorization: `Bearer ${refreshCookie.split("=")[1]}` },
+    });
     assert.equal(refreshAsAccess.response.status, 401);
-    const refreshed = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: latestCookies } });
+    const refreshed = await request(server, "/refresh-token", {
+      method: "POST",
+      headers: { Cookie: latestCookies },
+    });
     assert.equal(refreshed.response.status, 200);
     assert.ok(refreshed.body.data.accessToken);
-    const rotatedCookies = refreshed.response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
-    const reused = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: latestCookies } });
+    const rotatedCookies = refreshed.response.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const reused = await request(server, "/refresh-token", {
+      method: "POST",
+      headers: { Cookie: latestCookies },
+    });
     assert.equal(reused.response.status, 401);
-    const sessionCookie = loggedIn.response.headers.getSetCookie().find((value) => value.startsWith("tesla_pool_session=")).split(";")[0];
+    const sessionCookie = loggedIn.response.headers
+      .getSetCookie()
+      .find((value) => value.startsWith("tesla_pool_session="))
+      .split(";")[0];
 
     const anonymous = await request(server, "/me");
     assert.equal(anonymous.response.status, 401);
-    const current = await request(server, "/me", { headers: { Cookie: sessionCookie } });
+    const current = await request(server, "/me", {
+      headers: { Cookie: sessionCookie },
+    });
     assert.equal(current.response.status, 200);
     assert.equal(current.body.data.passenger.name, fakePassenger.name);
 
-    const edited = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ name: "Saikat Das" }) });
+    const edited = await request(server, "/me", {
+      method: "PATCH",
+      headers: { Cookie: sessionCookie },
+      body: JSON.stringify({ name: "Saikat Das" }),
+    });
     assert.equal(edited.response.status, 200);
     assert.equal(edited.body.data.passenger.name, "Saikat Das");
-    const renamed = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ username: "saikat_passenger" }) });
+    const renamed = await request(server, "/me", {
+      method: "PATCH",
+      headers: { Cookie: sessionCookie },
+      body: JSON.stringify({ username: "saikat_passenger" }),
+    });
     assert.equal(renamed.response.status, 400);
-    const unverifiedEmail = await request(server, "/me", { method: "PATCH", headers: { Cookie: sessionCookie }, body: JSON.stringify({ email: "new@example.com" }) });
+    const unverifiedEmail = await request(server, "/me", {
+      method: "PATCH",
+      headers: { Cookie: sessionCookie },
+      body: JSON.stringify({ email: "new@example.com" }),
+    });
     assert.equal(unverifiedEmail.response.status, 400);
 
-    const expiredToken = jwt.sign({ sub: fakePassenger.id }, process.env.JWT_SECRET, { expiresIn: -1 });
-    const expired = await request(server, "/me", { headers: { Authorization: `Bearer ${expiredToken}` } });
+    const expiredToken = jwt.sign(
+      { sub: fakePassenger.id },
+      process.env.JWT_SECRET,
+      { expiresIn: -1 },
+    );
+    const expired = await request(server, "/me", {
+      headers: { Authorization: `Bearer ${expiredToken}` },
+    });
     assert.equal(expired.response.status, 401);
     assert.match(expired.body.message, /expired/i);
 
-    const driverToken = jwt.sign({ sub: fakePassenger.id, role: "driver" }, process.env.JWT_SECRET);
-    const wrongRole = await request(server, "/me", { headers: { Authorization: `Bearer ${driverToken}` } });
+    const driverToken = jwt.sign(
+      { sub: fakePassenger.id, role: "driver" },
+      process.env.JWT_SECRET,
+    );
+    const wrongRole = await request(server, "/me", {
+      headers: { Authorization: `Bearer ${driverToken}` },
+    });
     assert.equal(wrongRole.response.status, 401);
 
-    const loggedOut = await request(server, "/logout", { method: "POST", headers: { Cookie: rotatedCookies } });
+    const loggedOut = await request(server, "/logout", {
+      method: "POST",
+      headers: { Cookie: rotatedCookies },
+    });
     assert.equal(loggedOut.response.status, 200);
-    assert.match(loggedOut.response.headers.get("set-cookie"), /Expires=Thu, 01 Jan 1970/);
-    const revoked = await request(server, "/refresh-token", { method: "POST", headers: { Cookie: rotatedCookies } });
+    assert.match(
+      loggedOut.response.headers.get("set-cookie"),
+      /Expires=Thu, 01 Jan 1970/,
+    );
+    const revoked = await request(server, "/refresh-token", {
+      method: "POST",
+      headers: { Cookie: rotatedCookies },
+    });
     assert.equal(revoked.response.status, 401);
   } finally {
     Object.assign(Passenger, originals);

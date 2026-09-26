@@ -1,7 +1,11 @@
 import { v2 as cloudinary } from "cloudinary";
 
 function configureCloudinary() {
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  if (
+    !process.env.CLOUDINARY_CLOUD_NAME ||
+    !process.env.CLOUDINARY_API_KEY ||
+    !process.env.CLOUDINARY_API_SECRET
+  ) {
     throw new Error("Cloudinary credentials are missing.");
   }
   cloudinary.config({
@@ -12,7 +16,11 @@ function configureCloudinary() {
   });
 }
 
-export async function uploadOnCloudinary(localFilePath, accountId, role = "passenger") {
+export async function uploadOnCloudinary(
+  localFilePath,
+  accountId,
+  role = "passenger",
+) {
   configureCloudinary();
   // The caller removes the local file only after Cloudinary and MongoDB succeed.
   return cloudinary.uploader.upload(localFilePath, {

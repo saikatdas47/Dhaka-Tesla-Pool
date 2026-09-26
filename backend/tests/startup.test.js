@@ -12,10 +12,27 @@ test("frontend stays available while database APIs report temporary outage", asy
   const base = `http://127.0.0.1:${server.address().port}`;
 
   try {
-    const backendDirectory = path.dirname(fileURLToPath(new URL("../app.js", import.meta.url)));
+    const backendDirectory = path.dirname(
+      fileURLToPath(new URL("../app.js", import.meta.url)),
+    );
     if (existsSync(path.join(backendDirectory, "public", "index.html"))) {
-      const page = await fetch(`${base}/login`);
-      assert.equal(page.status, 200);
+      for (const route of [
+        "/login",
+        "/register",
+        "/passenger/history",
+        "/driver/profile",
+        "/admin/drivers",
+      ]) {
+        const page = await fetch(`${base}${route}`);
+        assert.equal(page.status, 200);
+        assert.match(page.headers.get("content-type"), /text\/html/);
+        assert.match(await page.text(), /id="root"/);
+      }
+      const avatar = await fetch(`${base}/default-avatar.svg`);
+      assert.equal(avatar.status, 200);
+      const missingApi = await fetch(`${base}/api/not-a-route`);
+      assert.equal(missingApi.status, 404);
+      assert.match(missingApi.headers.get("content-type"), /application\/json/);
     }
     const api = await fetch(`${base}/api/passengers/me`);
     assert.equal(api.status, 503);

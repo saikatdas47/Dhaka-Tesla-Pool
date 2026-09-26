@@ -15,7 +15,8 @@ mkdirSync(uploadDirectory, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_request, _file, done) => done(null, uploadDirectory),
-  filename: (_request, file, done) => done(null, `${randomUUID()}${extensions[file.mimetype]}`),
+  filename: (_request, file, done) =>
+    done(null, `${randomUUID()}${extensions[file.mimetype]}`),
 });
 
 export const uploadAvatarFile = multer({

@@ -8,11 +8,13 @@ export const defaultFareSettings = Object.freeze({
 
 export async function getFareSettings() {
   const saved = await FareSettings.findById("current").lean();
-  return saved ? {
-    baseFarePaisa: saved.baseFarePaisa,
-    perKmPaisa: saved.perKmPaisa,
-    sharedDiscountPercent: saved.sharedDiscountPercent,
-    updatedAt: saved.updatedAt,
-    configured: true,
-  } : { ...defaultFareSettings, updatedAt: null, configured: false };
+  return saved
+    ? {
+        baseFarePaisa: saved.baseFarePaisa,
+        perKmPaisa: saved.perKmPaisa,
+        sharedDiscountPercent: saved.sharedDiscountPercent,
+        updatedAt: saved.updatedAt,
+        configured: true,
+      }
+    : { ...defaultFareSettings, updatedAt: null, configured: false };
 }

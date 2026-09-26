@@ -13,11 +13,12 @@ test("failed avatar upload stays local and retry removes it after success", asyn
   process.env.CLOUDINARY_API_KEY = "test-key";
   process.env.CLOUDINARY_API_SECRET = "test-secret";
 
-  const [{ default: app }, { default: Passenger }, { v2: cloudinary }] = await Promise.all([
-    import("../app.js"),
-    import("../models/Passenger.js"),
-    import("cloudinary"),
-  ]);
+  const [{ default: app }, { default: Passenger }, { v2: cloudinary }] =
+    await Promise.all([
+      import("../app.js"),
+      import("../models/Passenger.js"),
+      import("cloudinary"),
+    ]);
   const originals = {
     findById: Passenger.findById,
     findOneAndUpdate: Passenger.findOneAndUpdate,
@@ -37,12 +38,18 @@ test("failed avatar upload stays local and retry removes it after success", asyn
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const token = jwt.sign({ sub: state.id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+  const token = jwt.sign({ sub: state.id }, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
 
   try {
-    Passenger.findById = async (id) => id === state.id ? { ...state } : null;
+    Passenger.findById = async (id) => (id === state.id ? { ...state } : null);
     Passenger.findOneAndUpdate = async (filter, update) => {
-      if (filter._id !== state.id || filter.pendingAvatarFilename !== state.pendingAvatarFilename) return null;
+      if (
+        filter._id !== state.id ||
+        filter.pendingAvatarFilename !== state.pendingAvatarFilename
+      )
+        return null;
       Object.assign(state, update.$set);
       return { ...state };
     };
@@ -50,13 +57,21 @@ test("failed avatar upload stays local and retry removes it after success", asyn
       Object.assign(state, update.$set);
       return { matchedCount: 1 };
     };
-    cloudinary.uploader.upload = async () => { throw new Error("simulated Cloudinary outage"); };
+    cloudinary.uploader.upload = async () => {
+      throw new Error("simulated Cloudinary outage");
+    };
 
-    const noToken = await fetch(`${base}/api/passengers/avatar/retry`, { method: "POST" });
+    const noToken = await fetch(`${base}/api/passengers/avatar/retry`, {
+      method: "POST",
+    });
     assert.equal(noToken.status, 401);
 
     const wrongType = new FormData();
-    wrongType.append("avatar", new Blob(["hello"], { type: "text/plain" }), "note.txt");
+    wrongType.append(
+      "avatar",
+      new Blob(["hello"], { type: "text/plain" }),
+      "note.txt",
+    );
     const rejectedType = await fetch(`${base}/api/passengers/avatar`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -66,7 +81,11 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     assert.deepEqual(await readdir(tempDirectory), []);
 
     const fakePng = new FormData();
-    fakePng.append("avatar", new Blob(["not an image"], { type: "image/png" }), "fake.png");
+    fakePng.append(
+      "avatar",
+      new Blob(["not an image"], { type: "image/png" }),
+      "fake.png",
+    );
     const rejectedContent = await fetch(`${base}/api/passengers/avatar`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -75,7 +94,10 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     assert.equal(rejectedContent.status, 400);
     assert.deepEqual(await readdir(tempDirectory), []);
 
-    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=", "base64");
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=",
+      "base64",
+    );
     const body = new FormData();
     body.append("avatar", new Blob([png], { type: "image/png" }), "nusrat.png");
     const upload = await fetch(`${base}/api/passengers/avatar`, {
@@ -103,24 +125,45 @@ test("failed avatar upload stays local and retry removes it after success", asyn
     assert.deepEqual(await readdir(tempDirectory), []);
 
     const calls = [];
-    cloudinary.uploader.destroy = async () => { calls.push("delete"); return { result: "ok" }; };
+    cloudinary.uploader.destroy = async () => {
+      calls.push("delete");
+      return { result: "ok" };
+    };
     cloudinary.uploader.upload = async () => {
       calls.push("upload");
-      return { secure_url: "https://res.cloudinary.com/example/image/upload/replacement.png", public_id: `dhaka-tesla-pool/passengers/${state.id}` };
+      return {
+        secure_url:
+          "https://res.cloudinary.com/example/image/upload/replacement.png",
+        public_id: `dhaka-tesla-pool/passengers/${state.id}`,
+      };
     };
     const replacement = new FormData();
-    replacement.append("avatar", new Blob([png], { type: "image/png" }), "replacement.png");
-    const replaced = await fetch(`${base}/api/passengers/avatar`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: replacement });
+    replacement.append(
+      "avatar",
+      new Blob([png], { type: "image/png" }),
+      "replacement.png",
+    );
+    const replaced = await fetch(`${base}/api/passengers/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: replacement,
+    });
     assert.equal(replaced.status, 200);
     assert.deepEqual(calls, ["delete", "upload"]);
 
     cloudinary.uploader.destroy = async () => ({ result: "error" });
-    const failedRemoval = await fetch(`${base}/api/passengers/avatar`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    const failedRemoval = await fetch(`${base}/api/passengers/avatar`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
     assert.equal(failedRemoval.status, 502);
     assert.ok(state.avatarUrl);
 
     cloudinary.uploader.destroy = async () => ({ result: "ok" });
-    const removed = await fetch(`${base}/api/passengers/avatar`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    const removed = await fetch(`${base}/api/passengers/avatar`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
     assert.equal(removed.status, 200);
     assert.equal((await removed.json()).data.passenger.avatarUrl, null);
     assert.equal(state.avatarPublicId, null);

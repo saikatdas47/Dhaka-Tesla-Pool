@@ -23,8 +23,10 @@ export async function roleFetch(role, url, options = {}) {
   if (response.status === 401) {
     const collection = role === "driver" ? "drivers" : "passengers";
     if (!pendingRefreshes.has(role)) {
-      const refresh = fetch(`/api/${collection}/refresh-token`, { method: "POST", credentials: "same-origin" })
-        .finally(() => pendingRefreshes.delete(role));
+      const refresh = fetch(`/api/${collection}/refresh-token`, {
+        method: "POST",
+        credentials: "same-origin",
+      }).finally(() => pendingRefreshes.delete(role));
       pendingRefreshes.set(role, refresh);
     }
     const refreshed = await pendingRefreshes.get(role);
