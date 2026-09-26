@@ -268,4 +268,8 @@ Coverage: BFS paths, forward/branch/reverse matching, fares, capacity/concurrenc
 | `backend/services/rideChatService.js`       | Private temporary chat               |
 | `frontend/src/RidePanels.jsx`               | Map, offers, individual ride actions |
 
-**Boundaries:** no live GPS, real payments, traffic routing or guaranteed one-second matching. Offers inspect up to 200 candidates. Old completed history remains; older active pools finish without accepting new graph bookings. ERD/system design is a separate next step.
+**Boundaries:** no live GPS, real payments, traffic routing or guaranteed one-second matching. Offers inspect up to 200 candidates. Old completed history remains; older active pools finish without accepting new graph bookings.
+
+## 10. Entity Relationship Diagram
+
+![Dhaka Tesla Pool — Entity Relationship Diagram](assets/erd.png)
