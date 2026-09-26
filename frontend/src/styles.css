@@ -824,6 +824,17 @@ p {
   color: #657d68;
   font-weight: 500;
 }
+.fare-price-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 5px;
+}
+.fare-price-steps del {
+  color: #718579;
+  font-weight: 400;
+}
 .area-map {
   overflow: hidden;
   padding: 15px 16px;

@@ -155,7 +155,8 @@ export function reserveSeats(trip, ride, change = 1) {
 }
 export function priceForDistance(approximateKm, seats, settings) {
   const soloFarePaisa =
-    (settings.baseFarePaisa + approximateKm * settings.perKmPaisa) * seats;
+    settings.baseFarePaisa * seats +
+    Math.round(approximateKm * settings.perKmPaisa);
   return {
     approximateKm,
     soloFarePaisa,
@@ -163,6 +164,10 @@ export function priceForDistance(approximateKm, seats, settings) {
       (soloFarePaisa * (100 - settings.sharedDiscountPercent)) / 100,
     ),
     fareRule: {
+      discountBpsPerKm2: settings.discountBpsPerKm2,
+      discountBpsPerKm3: settings.discountBpsPerKm3,
+      discountBpsPerKm4: settings.discountBpsPerKm4,
+      maxDiscountBps: settings.maxDiscountBps,
       baseFarePaisa: settings.baseFarePaisa,
       perKmPaisa: settings.perKmPaisa,
       sharedDiscountPercent: settings.sharedDiscountPercent,

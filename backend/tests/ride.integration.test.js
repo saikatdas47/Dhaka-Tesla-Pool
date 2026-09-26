@@ -12,6 +12,8 @@ import Passenger from "../models/Passenger.js";
 import Pool from "../models/Pool.js";
 import RideChat from "../models/RideChat.js";
 import RideRequest from "../models/RideRequest.js";
+import LiveFare from "../models/LiveFare.js";
+import FareSettings from "../models/FareSettings.js";
 
 test(
   "Atlas graph pooling: shortest path, forward extension, automatic progress, concurrency, chat, payment and reviews",
@@ -32,6 +34,7 @@ test(
         Driver.init(),
         Pool.init(),
         RideRequest.init(),
+        LiveFare.init(),
         RideChat.init(),
         DriverReview.init(),
       ]);
@@ -368,7 +371,19 @@ test(
         true,
       );
 
+      const changed = new Promise((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Dashboard update signal missing")),
+          5000,
+        );
+        passengerSocket.once("rides:changed", (payload) => {
+          clearTimeout(timeout);
+          assert.equal(payload, undefined);
+          resolve();
+        });
+      });
       const behind = await create(people[6], "Bashundhara", "Banani");
+      await changed;
       await step(second, "DRIVER_ARRIVED");
       await step(second, "STARTED");
       assert.equal((await Driver.findById(driver.id)).currentArea, "Banani");
@@ -394,7 +409,15 @@ test(
       assert.equal((await current()).occupiedSeats, 2);
       assert.equal(
         (await RideRequest.findById(first.id)).finalFarePaisa,
-        Math.round(first.soloFarePaisa * 0.8),
+        Math.round(
+          first.soloFarePaisa *
+            (1 -
+              (await RideRequest.findById(first.id)).fareBreakdown.reduce(
+                (sum, part) => sum + (part.discountBps || 0),
+                0,
+              ) /
+                10000),
+        ),
       );
       await ok(driver, "/rides/requests/" + first.id + "/confirm-cash", "POST");
       assert.equal(
@@ -405,12 +428,66 @@ test(
       await step(winner, "COMPLETED");
       assert.equal(await current(), null);
       assert.equal(
+        await LiveFare.countDocuments(),
+        0,
+        "Finished pool working ledgers are removed.",
+      );
+      await save("Dhanmondi");
+      const a = await create(people[0], "Dhanmondi", "Mohakhali");
+      const b = await create(people[1], "Farmgate", "Mohakhali");
+      await accept(a);
+      await accept(b);
+      await step(a, "DRIVER_ARRIVED");
+      await step(a, "STARTED");
+      await step(b, "DRIVER_ARRIVED");
+      await step(b, "STARTED");
+      assert.equal(
+        (await RideRequest.findById(a.id)).currentEstimatePaisa,
+        16235,
+      );
+      assert.equal(
+        (await RideRequest.findById(b.id)).currentEstimatePaisa,
+        10505,
+      );
+      assert.equal(await LiveFare.countDocuments(), 1);
+      await FareSettings.updateOne(
+        { _id: "current" },
+        {
+          $set: {
+            baseFarePaisa: 5000,
+            perKmPaisa: 2000,
+            sharedDiscountPercent: 20,
+            discountBpsPerKm2: 1000,
+            discountBpsPerKm3: 1000,
+            discountBpsPerKm4: 1000,
+            maxDiscountBps: 1000,
+          },
+        },
+        { upsert: true },
+      );
+      await step(a, "COMPLETED");
+      await step(b, "COMPLETED");
+      assert.equal((await RideRequest.findById(a.id)).finalFarePaisa, 16235);
+      assert.equal((await RideRequest.findById(b.id)).finalFarePaisa, 10505);
+      await FareSettings.updateOne(
+        { _id: "current" },
+        {
+          $set: {
+            discountBpsPerKm2: 150,
+            discountBpsPerKm3: 200,
+            discountBpsPerKm4: 250,
+            maxDiscountBps: 3000,
+          },
+        },
+      );
+      assert.equal(await LiveFare.countDocuments(), 0);
+      assert.equal(
         (await RideRequest.findById(second.id)).paymentStatus,
         "paid",
       );
       const passengerHistory = (await ok(people[0], "/rides/mine?view=history"))
         .rides;
-      assert.equal(passengerHistory.length, 1);
+      assert.equal(passengerHistory.length, 2);
       assert.equal(Object.hasOwn(passengerHistory[0], "members"), false);
       assert.equal(
         (
@@ -502,8 +579,8 @@ test(
       await step(late, "STARTED");
       assert.equal(
         (await RideRequest.findById(early.id)).finalFarePaisa,
-        early.soloFarePaisa,
-        "Adjacent non-overlapping bookings are not shared.",
+        Math.round(early.soloFarePaisa * 0.84),
+        "Three occupied seats earn 2% per travelled km; adjacent bookings add no extra discount.",
       );
       await step(late, "COMPLETED");
       assert.equal((await Driver.findById(driver.id)).currentArea, "Dhanmondi");

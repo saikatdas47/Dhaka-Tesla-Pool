@@ -54,6 +54,11 @@ export function attachRideSockets(server, app) {
     }
   });
   io.on("connection", (socket) => {
+    const expiryTimer = setTimeout(
+      () => socket.disconnect(true),
+      Math.max(1, socket.data.expiresAt - Date.now()),
+    );
+    socket.on("disconnect", () => clearTimeout(expiryTimer));
     const authorized = () => {
       if (Date.now() >= socket.data.expiresAt)
         throw new Error("Session expired. Refresh and sign in again.");

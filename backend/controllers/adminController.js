@@ -290,6 +290,22 @@ export const updateAdminFareSettings = asyncHandler(
   async (request, response) => {
     const { baseFarePaisa, perKmPaisa, sharedDiscountPercent } =
       request.body || {};
+    const discountFields = {};
+    for (const key of [
+      "discountBpsPerKm2",
+      "discountBpsPerKm3",
+      "discountBpsPerKm4",
+      "maxDiscountBps",
+    ]) {
+      const value = request.body?.[key];
+      if (value === undefined) continue; // Older clients remain compatible.
+      if (!Number.isInteger(value) || value < 0 || value > 10000)
+        throw new ApiError(
+          400,
+          "Discount values must be 0–10000 basis points.",
+        );
+      discountFields[key] = value;
+    }
     if (
       !Number.isSafeInteger(baseFarePaisa) ||
       baseFarePaisa < 0 ||
@@ -308,7 +324,14 @@ export const updateAdminFareSettings = asyncHandler(
     }
     const settings = await FareSettings.findOneAndUpdate(
       { _id: "current" },
-      { $set: { baseFarePaisa, perKmPaisa, sharedDiscountPercent } },
+      {
+        $set: {
+          baseFarePaisa,
+          perKmPaisa,
+          sharedDiscountPercent,
+          ...discountFields,
+        },
+      },
       { upsert: true, runValidators: true, returnDocument: "after" },
     );
     response.json(
@@ -318,6 +341,10 @@ export const updateAdminFareSettings = asyncHandler(
           baseFarePaisa: settings.baseFarePaisa,
           perKmPaisa: settings.perKmPaisa,
           sharedDiscountPercent: settings.sharedDiscountPercent,
+          discountBpsPerKm2: settings.discountBpsPerKm2 ?? 150,
+          discountBpsPerKm3: settings.discountBpsPerKm3 ?? 200,
+          discountBpsPerKm4: settings.discountBpsPerKm4 ?? 250,
+          maxDiscountBps: settings.maxDiscountBps ?? 3000,
           updatedAt: settings.updatedAt,
           configured: true,
         },

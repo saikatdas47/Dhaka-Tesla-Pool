@@ -6,6 +6,7 @@ import Driver from "./models/Driver.js";
 import EmailOtp from "./models/EmailOtp.js";
 import Pool from "./models/Pool.js";
 import RideRequest from "./models/RideRequest.js";
+import LiveFare from "./models/LiveFare.js";
 import RideChat from "./models/RideChat.js";
 import DriverReview from "./models/DriverReview.js";
 import {
@@ -14,6 +15,7 @@ import {
   refreshExpiry,
 } from "./utils/tokenConfig.js";
 import { seedDemoAccounts } from "./config/demoAccounts.js";
+import { seedFareSettings } from "./services/fareSettingsService.js";
 import app from "./app.js";
 import { attachRideSockets } from "./socket.js";
 
@@ -100,10 +102,12 @@ async function start() {
       await EmailOtp.init();
       await Pool.init();
       await RideRequest.init();
+      await LiveFare.init();
       await RideChat.init();
       // Remove chats closed by older versions, which kept messages until payment.
       await RideChat.deleteMany({ status: "closed" });
       await DriverReview.init();
+      await seedFareSettings();
       await seedDemoAccounts();
       databaseInitialized = true;
       app.locals.databaseReady = true;

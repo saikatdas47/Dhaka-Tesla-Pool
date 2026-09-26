@@ -128,6 +128,7 @@ function FareSettingsPanel() {
   const [base, setBase] = useState("");
   const [perKm, setPerKm] = useState("");
   const [discount, setDiscount] = useState("");
+  const [sharing, setSharing] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -137,6 +138,12 @@ function FareSettingsPanel() {
     setBase((value.baseFarePaisa / 100).toFixed(2));
     setPerKm((value.perKmPaisa / 100).toFixed(2));
     setDiscount(String(value.sharedDiscountPercent));
+    setSharing({
+      discountBpsPerKm2: String((value.discountBpsPerKm2 ?? 150) / 100),
+      discountBpsPerKm3: String((value.discountBpsPerKm3 ?? 200) / 100),
+      discountBpsPerKm4: String((value.discountBpsPerKm4 ?? 250) / 100),
+      maxDiscountBps: String((value.maxDiscountBps ?? 3000) / 100),
+    });
   }
 
   useEffect(() => {
@@ -159,7 +166,10 @@ function FareSettingsPanel() {
     setMessage("");
     if (
       ![base, perKm].every((value) => /^\d+(\.\d{1,2})?$/.test(value)) ||
-      !/^\d+$/.test(discount)
+      !/^\d+$/.test(discount) ||
+      !Object.values(sharing).every(
+        (value) => /^\d+(\.\d{1,2})?$/.test(value) && Number(value) <= 100,
+      )
     ) {
       setError(
         "Use amounts with up to two decimal places and a whole-number discount.",
@@ -174,6 +184,12 @@ function FareSettingsPanel() {
           baseFarePaisa: Math.round(Number(base) * 100),
           perKmPaisa: Math.round(Number(perKm) * 100),
           sharedDiscountPercent: Number(discount),
+          ...Object.fromEntries(
+            Object.entries(sharing).map(([key, value]) => [
+              key,
+              Math.round(Number(value) * 100),
+            ]),
+          ),
         }),
       });
       showSettings(value);
@@ -228,22 +244,33 @@ function FareSettingsPanel() {
                   required
                 />
               </label>
-              <label className="field">
-                Shared pool discount (%)
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={discount}
-                  onChange={(event) => setDiscount(event.target.value)}
-                  required
-                />
-              </label>
+              {[
+                ["discountBpsPerKm2", "2 occupied seats: discount per km (%)"],
+                ["discountBpsPerKm3", "3 occupied seats: discount per km (%)"],
+                ["discountBpsPerKm4", "4 occupied seats: discount per km (%)"],
+                ["maxDiscountBps", "Maximum total discount (%)"],
+              ].map(([key, label]) => (
+                <label className="field" key={key}>
+                  {label}
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={sharing[key] || ""}
+                    onChange={(event) =>
+                      setSharing((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </label>
+              ))}
               <p className="driver-note">
-                Solo = (base + distance × per-km rate) × seats. Shared discount
-                applies only when at least two requests join one pool. Distance
-                uses fixed area centres, not road GPS.
+                Discount = travelled km × rate for occupied seats, capped at the
+                maximum. Pool-start snapshots protect ongoing trips.
               </p>
               <button className="retry-button" type="submit" disabled={busy}>
                 {busy ? "Saving…" : "Save fare settings"}

@@ -3,6 +3,13 @@ import Driver from "../models/Driver.js";
 import Pool from "../models/Pool.js";
 import RideRequest from "../models/RideRequest.js";
 import RideChat from "../models/RideChat.js";
+import {
+  settleTravel,
+  refreshFareEstimates,
+  discountedFare,
+  fareSteps,
+  projectedDiscountBps,
+} from "../services/liveFareService.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -31,6 +38,18 @@ function publicRide(ride) {
   const shared = pool?.routeCode
     ? hasSharedSegment(pool, ride)
     : (pool?.members?.length || 0) > 1;
+  const currentFare =
+    ride.finalFarePaisa ??
+    (pool?.fareMode === "shared-km" && activeStatuses.includes(ride.status)
+      ? discountedFare(
+          ride.soloFarePaisa,
+          projectedDiscountBps(pool, ride, pool.members),
+          pool.fareRule.maxDiscountBps,
+        )
+      : (ride.currentEstimatePaisa ??
+        (shared ? ride.pooledFarePaisa : ride.soloFarePaisa)));
+  const steps = fareSteps(ride);
+  if (steps.at(-1) !== currentFare) steps.push(currentFare);
   return {
     id: ride.id,
     routeCode: ride.routeCode,
@@ -46,9 +65,10 @@ function publicRide(ride) {
     soloFarePaisa: ride.soloFarePaisa,
     pooledFarePaisa: ride.pooledFarePaisa,
     fareRule: ride.fareRule || null,
-    currentFarePaisa:
-      ride.finalFarePaisa ??
-      (shared ? ride.pooledFarePaisa : ride.soloFarePaisa),
+    currentFarePaisa: currentFare,
+    previousEstimatePaisa: ride.previousEstimatePaisa,
+    fareBreakdown: ride.fareBreakdown,
+    fareStepsPaisa: steps,
     paymentMethod: ride.paymentMethod || "not recorded",
     paymentStatus: ride.paymentStatus || "not recorded",
     paidAt: ride.paidAt || null,
@@ -435,8 +455,16 @@ export const acceptRide = asyncHandler(async (request, response) => {
       const quote = priceForDistance(
         distance,
         ride.seats,
-        ride.fareRule?.baseFarePaisa != null
-          ? ride.fareRule
+        pool?.fareMode
+          ? {
+              baseFarePaisa: pool.fareRule.baseFarePaisa,
+              perKmPaisa: pool.fareRule.perKmPaisa,
+              discountBpsPerKm2: pool.fareRule.discountBpsPerKm2,
+              discountBpsPerKm3: pool.fareRule.discountBpsPerKm3,
+              discountBpsPerKm4: pool.fareRule.discountBpsPerKm4,
+              maxDiscountBps: pool.fareRule.maxDiscountBps,
+              sharedDiscountPercent: 0,
+            }
           : await getFareSettings(),
       );
       const member = {
@@ -478,6 +506,8 @@ export const acceptRide = asyncHandler(async (request, response) => {
             {
               ...trip,
               routeCode: "graph-v1",
+              fareMode: "shared-km",
+              fareRule: quote.fareRule,
               currentStopIndex: 0,
               segmentSeats,
               driver: driver.id,
@@ -501,6 +531,8 @@ export const acceptRide = asyncHandler(async (request, response) => {
         {
           $set: {
             ...quote,
+            currentEstimatePaisa: quote.soloFarePaisa,
+            estimateHistoryPaisa: [quote.soloFarePaisa],
             routeCode: "graph-v1",
             routeStops: trip.routeStops.slice(pickup, destination + 1),
             segmentKm: trip.segmentKm.slice(pickup, destination),
@@ -516,6 +548,7 @@ export const acceptRide = asyncHandler(async (request, response) => {
       if (changed.modifiedCount !== 1)
         throw new ApiError(409, "Request was accepted elsewhere.");
       await openRideChat(ride, pool, session);
+      await refreshFareEstimates(pool, session);
       poolId = pool.id;
     });
   } catch (error) {
@@ -594,6 +627,10 @@ export const cancelRide = asyncHandler(async (request, response) => {
       ride.history.push({ status: "CANCELLED", at: new Date() });
       await ride.save({ session });
       await RideChat.deleteOne({ ride: ride.id }, { session });
+      if (ride.pool) {
+        const updatedPool = await Pool.findById(ride.pool).session(session);
+        await refreshFareEstimates(updatedPool, session);
+      }
     });
   } finally {
     await session.endSession();
@@ -622,9 +659,7 @@ export const advancePassengerRide = asyncHandler(async (request, response) => {
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      const ride = await RideRequest.findById(request.params.id).session(
-        session,
-      );
+      let ride = await RideRequest.findById(request.params.id).session(session);
       if (!ride || ride.status !== previous)
         throw new ApiError(
           409,
@@ -682,6 +717,8 @@ export const advancePassengerRide = asyncHandler(async (request, response) => {
             throw new ApiError(409, "Handle the earlier Passenger stop first.");
         }
         if (next === "STARTED" || next === "COMPLETED") {
+          await settleTravel(pool, stopIndex, session);
+          ride = await RideRequest.findById(ride.id).session(session);
           pool.currentStopIndex = stopIndex;
           await Driver.updateOne(
             { _id: request.driver.id },
@@ -706,10 +743,28 @@ export const advancePassengerRide = asyncHandler(async (request, response) => {
       if (next === "COMPLETED") {
         pool.occupiedSeats -= ride.seats;
         ride.droppedOffAt = now;
-        ride.finalFarePaisa = hasSharedSegment(pool, ride)
-          ? ride.pooledFarePaisa
-          : ride.soloFarePaisa;
+        ride.finalFarePaisa =
+          pool.fareMode === "shared-km"
+            ? discountedFare(
+                ride.soloFarePaisa,
+                ride.fareBreakdown.reduce(
+                  (sum, part) => sum + (part.discountBps || 0),
+                  0,
+                ),
+                pool.fareRule.maxDiscountBps,
+              )
+            : pool.fareMode === "segment"
+              ? pool.fareRule.baseFarePaisa * ride.seats +
+                ride.fareBreakdown.reduce((sum, part) => sum + part.paisa, 0)
+              : hasSharedSegment(pool, ride)
+                ? ride.pooledFarePaisa
+                : ride.soloFarePaisa;
         ride.paymentStatus = "due";
+        if (
+          pool.fareMode === "shared-km" &&
+          ride.estimateHistoryPaisa.at(-1) !== ride.finalFarePaisa
+        )
+          ride.estimateHistoryPaisa.push(ride.finalFarePaisa);
         let paymentEvent = "PAYMENT_DUE";
         if (ride.paymentMethod === "teslapay") {
           ride.paymentStatus = "paid";
@@ -736,6 +791,7 @@ export const advancePassengerRide = asyncHandler(async (request, response) => {
         pool.status = "COMPLETED";
       await pool.save({ session });
       await ride.save({ session });
+      await refreshFareEstimates(pool, session);
     });
   } finally {
     await session.endSession();

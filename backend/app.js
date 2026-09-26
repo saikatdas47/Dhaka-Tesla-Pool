@@ -24,6 +24,19 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
 app.use(cookieParser());
 
+// A successful mutation tells connected dashboards to fetch fresh authorized
+// data. The signal contains no Passenger, trip or fare details.
+app.use("/api", (request, response, next) => {
+  response.on("finish", () => {
+    if (
+      ["POST", "PUT", "PATCH", "DELETE"].includes(request.method) &&
+      response.statusCode < 400
+    )
+      request.app.locals.io?.emit("rides:changed");
+  });
+  next();
+});
+
 app.get("/health", (_request, response) => {
   const connected =
     mongoose.connection.readyState === 1 && app.locals.databaseReady;

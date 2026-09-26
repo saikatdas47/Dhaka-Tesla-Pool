@@ -99,34 +99,78 @@ Drop-off: onboardSeats -= passengerSeats
 
 ## 4. Fare: calculate it by hand
 
-Money is stored as **integer paisa**: 100 paisa = ৳1. Admin controls base fare, per-km rate and shared discount.
+Money uses **integer paisa** (100 paisa = ৳1). Discount rates use **integer basis points** (100 bps = 1%) so Admin can enter 1.50% without storing floating-point percentages.
 
-Default demo rates: **৳50 base + ৳20/km; shared discount 20%**.
+### Before travel: Admin sets the rules
+
+| Occupied booked seats | Default discount per travelled km |
+| --------------------- | --------------------------------: |
+| 1                     |                                0% |
+| 2                     |                              1.5% |
+| 3                     |                                2% |
+| 4                     |                              2.5% |
+
+Default base = **৳50 per booked seat**, distance rate = **৳20/km**, maximum discount = **30%** (an editable starting choice, not a mandatory business limit). Admin → Fare settings saves rates/cap in Atlas. Startup inserts defaults only if missing; it never overwrites Admin settings.
+
+Count **occupied booked seats, not accounts or requests**. A single booking for three seats qualifies for the three-seat rate. Pending/accepted seats that have not boarded do not count.
+
+### Request → accept → travel → final fare
+
+1. **Request:** show solo estimate (base + distance), with no discount.
+2. **First acceptance:** snapshot all current Admin rates in the pool. Later accepted bookings use the same snapshot; Admin edits affect new pools, not this one.
+3. **Pickup/drop-off:** settle the edges actually passed using their onboard seat count. New passengers cannot change older settled edges.
+4. **Estimate:** show earned discount plus expected remaining sharing with passengers already onboard, until their booked drop-offs. Accepted but unboarded passengers do not count. Pickup immediately recalculates this estimate.
+5. **Own drop-off:** freeze final fare and own breakdown; Cash is due or simulated TeslaPay is paid.
+6. **Whole pool ends:** delete temporary working ledger after permanent records are saved.
 
 ```text
-soloPaisa = (basePaisa + distanceKm × perKmPaisa) × seats
-sharedPaisa = round(soloPaisa × (100 − discountPercent) / 100)
+soloPaisa = basePaisa × bookedSeats + ownDistanceKm × perKmPaisa
+earnedDiscountBps = sum(travelledSegmentKm × rateBpsForOccupiedSeats)
+appliedDiscountBps = min(earnedDiscountBps, maximumDiscountBps)
+finalPaisa = round(soloPaisa × (10000 − appliedDiscountBps) / 10000)
+poolDiscountPaisa = soloPaisa − finalPaisa
 
-Bookings A and B share a segment when:
-A.pickupIndex < B.destinationIndex
-AND B.pickupIndex < A.destinationIndex
-
-finalFare = shared fare if another non-cancelled booking overlaps;
-            otherwise solo fare
+passengerFare = baseFare + distanceCharge − poolDiscount
 ```
 
-| Journey                       | Distance | Solo calculation          | Shared |
-| ----------------------------- | -------: | ------------------------- | -----: |
-| Banani → Gulshan 1, 1 seat    |     2 km | 50 + 2 × 20 = ৳90         |    ৳72 |
-| Banani → Mohakhali, 1 seat    |     4 km | 50 + 4 × 20 = ৳130        |   ৳104 |
-| Dhanmondi → Motijheel, 1 seat |     9 km | 50 + 9 × 20 = ৳230        |   ৳184 |
-| Mirpur → Mohakhali, 2 seats   |    10 km | (50 + 10 × 20) × 2 = ৳500 |   ৳400 |
+Distance cost is charged once for the booking; base is per seat. Discount applies to the whole solo fare. Round once to nearest paisa; do not round every segment's percentage. The fixed 20% discount and segment-cost division are **not used for new pools**.
 
-**Overlap example:** A travels Mirpur → Mohakhali; B travels Farmgate → Bashundhara. They share Farmgate → Mohakhali, so the whole booking gets the simple 20% discount. A ending at Mohakhali and B starting there have no shared segment: **no discount**.
+### Example 1: overlap, not just common stops
 
-This is accepted-booking overlap—not GPS-measured shared distance. Rates/path are saved as snapshots; acceptance recalculates assigned distance using saved rates. New pricing does not rewrite old rides. Final fare freezes at completion.
+P1: Mirpur → Agargaon → Farmgate → Mohakhali. P2: Agargaon → Farmgate → Mohakhali → Gulshan 1. Each books one seat.
 
-**Cash:** due after drop-off; Driver confirms receipt. **TeslaPay:** simulated auto-payment, no real gateway or wallet balance.
+Shared edges: **Agargaon → Farmgate (3 km)** + **Farmgate → Mohakhali (3 km)** = **6 km**. Three shared nodes do not mean three edges. Both earn **6 × 1.5 = 9%** on their own solo fare. If P1's solo fare is ৳600, final = **৳546** (illustrative fare; current default map/rates give P1 ৳250 → ৳227.50).
+
+### Example 2: occupancy changes
+
+One Passenger's solo fare = ৳600:
+
+| Travelled portion               |    Rate | Earned discount |
+| ------------------------------- | ------: | --------------: |
+| 3 km with 2 occupied seats      | 1.5%/km |            4.5% |
+| Next 2 km with 3 occupied seats |   2%/km |              4% |
+| Remaining distance alone        |   0%/km |              0% |
+| **Total**                       |         |        **8.5%** |
+
+Final = **600 × 0.915 = ৳549**. At 4 occupied seats a 2 km edge earns **5%**. Rates are alternatives, not added together.
+
+### Example 3: no overlap
+
+P1 gets off at Mohakhali; P2 boards there for Gulshan. They never travel the same edge together: their booking relationship earns **zero extra shared discount**. If each booking has one seat, discount is zero. If one independently has three occupied seats, it still qualifies for the three-seat rate.
+
+### Example 4: cap
+
+Earned discount 42%, Admin cap 30% → applied **30%**. A ৳600 solo fare becomes **৳420**, never ৳348.
+
+### UI & storage
+
+The request form always shows base + distance only. Current ride shows the price sequence: **~~৳600~~ → ~~৳573~~ → ৳549**, with savings. Pickup immediately shows a projected reduction; travelled segments then fix the actual discount. Accept alone does not discount. Each changed estimate is saved on RideRequest, so refresh preserves earlier crossed-out prices. Repeated prices add no extra entries. Projection may change when passengers leave; final fare uses only travelled edges. Final fare and each edge's km, occupied seats and earned percentage appear in own History. Other passengers' fares are private.
+
+`LiveFare` is a temporary collection in the same Atlas database. It stores pool/Driver IDs, settled progress and occupancy. Settlement, permanent RideRequest breakdowns, fare updates and final cleanup use one transaction. No TTL deletes unfinished ledgers. Payment due/paid stays on RideRequest after ledger cleanup.
+
+Older active pools finish with their saved previous fare mode; completed history is unchanged. This is a showcase with action-declared progress, not GPS proof of real travel.
+
+Passenger and Driver dashboards update automatically on successful ride/account changes through Socket.IO. Notifications carry no private ride data: each screen reloads only its authorized data. Reconnection catches missed changes; no periodic polling or page refresh is required. Requests and saved changes still use ordinary API calls.
 
 ## 5. Ride actions, chat & privacy
 

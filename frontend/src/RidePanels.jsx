@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RideChatBox from "./RideChatBox.jsx";
 import PassengerReviewForm from "./PassengerReviewForm.jsx";
 import { roleFetch } from "./tabAuth.js";
+import { watchRideUpdates } from "./rideUpdates.js";
 
 async function request(role, path, options = {}) {
   const response = await roleFetch(role, `/api/rides${path}`, {
@@ -76,7 +77,10 @@ function AreaMap({
         <strong>Dhaka weighted graph</strong>
         <small className="map-subtitle">
           <span>Demo distances · BFS tree path · no live GPS</span>
-          <span className="map-direction" aria-label="Travel from yellow pickup to purple destination">
+          <span
+            className="map-direction"
+            aria-label="Travel from yellow pickup to purple destination"
+          >
             <span className="map-dot pickup-dot" aria-hidden="true" />
             Pickup <span aria-hidden="true">→</span>
             <span className="map-dot destination-dot" aria-hidden="true" />
@@ -233,8 +237,7 @@ export function PassengerRides() {
       })
       .catch((failure) => setError(failure.message));
     refresh().catch((failure) => setError(failure.message));
-    const timer = setInterval(() => refresh().catch(() => {}), 10000);
-    return () => clearInterval(timer);
+    return watchRideUpdates("passenger", refresh);
   }, []);
   useEffect(() => {
     setQuote(null);
@@ -326,10 +329,10 @@ export function PassengerRides() {
           <AreaMap
             areas={areas}
             edges={edges}
-            path={path}
-            destinationArea={destinationArea}
+            path={active?.routeStops || path}
+            destinationArea={active?.destinationArea || destinationArea}
             drivers={drivers}
-            selectedArea={pickupArea}
+            selectedArea={active?.pickupArea || pickupArea}
             assignedArea={active?.driverArea}
             assignedOnline={active?.driverAvailability === "online"}
           />
@@ -384,11 +387,9 @@ export function PassengerRides() {
           </button>
           {quote && (
             <p className="fare-estimate">
-              Solo {taka(quote.soloFarePaisa)} · Shared{" "}
-              {taka(quote.pooledFarePaisa)}{" "}
+              Estimated fare: {taka(quote.soloFarePaisa)}
               <small>
-                ~{quote.approximateKm} km; shared fare applies when another
-                booking shares an overlapping route segment.
+                ~{quote.approximateKm} km · savings update after shared travel.
               </small>
             </p>
           )}
@@ -420,12 +421,44 @@ export function PassengerRides() {
                   {ride.status.replaceAll("_", " ")}
                 </span>
                 <p>
-                  {ride.seats} seat{ride.seats > 1 ? "s" : ""} · current fare{" "}
-                  {taka(ride.currentFarePaisa)}
+                  {ride.seats} seat{ride.seats > 1 ? "s" : ""}
                   {ride.poolSize > 1
                     ? ` · ${ride.poolSize} passengers sharing`
                     : ""}
                 </p>
+                <div className="fare-estimate" aria-live="polite">
+                  <small>
+                    {ride.status === "COMPLETED"
+                      ? "Final fare"
+                      : "Estimated fare"}
+                  </small>
+                  <div className="fare-price-steps">
+                    {(ride.fareStepsPaisa?.length > 1
+                      ? ride.fareStepsPaisa.slice(0, -1)
+                      : ride.currentFarePaisa !== ride.soloFarePaisa
+                        ? [ride.soloFarePaisa]
+                        : []
+                    ).map((amount, index) => (
+                      <span key={index}>
+                        <del>{taka(amount)}</del>
+                        <span aria-hidden="true"> → </span>
+                      </span>
+                    ))}
+                    <strong>{taka(ride.currentFarePaisa)}</strong>
+                  </div>
+                  {ride.currentFarePaisa < ride.soloFarePaisa && (
+                    <small>
+                      Saved {taka(ride.soloFarePaisa - ride.currentFarePaisa)}{" "}
+                      through sharing
+                    </small>
+                  )}
+                  {ride.status === "STARTED" && (
+                    <small>
+                      Includes expected sharing with passengers already onboard;
+                      final fare uses actual shared distance.
+                    </small>
+                  )}
+                </div>
                 <p>
                   Payment: {paymentLabel(ride.paymentMethod)} ·{" "}
                   {ride.paymentStatus}
@@ -501,8 +534,7 @@ export function DriverRides({ driver, onDriverUpdated }) {
       })
       .catch((failure) => setError(failure.message));
     refresh().catch((failure) => setError(failure.message));
-    const timer = setInterval(() => refresh().catch(() => {}), 10000);
-    return () => clearInterval(timer);
+    return watchRideUpdates("driver", refresh);
   }, []);
   useEffect(() => {
     setCurrentArea(driver.currentArea || "Banani");
@@ -959,6 +991,22 @@ export function RideHistory({ role }) {
                     ? taka(item.currentFarePaisa)
                     : "not charged"}
                 </p>
+                {item.fareBreakdown?.length > 0 && (
+                  <details>
+                    <summary>Fare breakdown</summary>
+                    <p>
+                      Base: {taka(item.fareRule.baseFarePaisa * item.seats)}
+                    </p>
+                    {item.fareBreakdown.map((part, index) => (
+                      <p key={index}>
+                        {part.from} → {part.to} · {part.km} km ·{" "}
+                        {part.discountBps != null
+                          ? `${part.occupiedSeats} occupied seats · ${part.discountBps / 100}% discount`
+                          : taka(part.paisa)}
+                      </p>
+                    ))}
+                  </details>
+                )}
                 <p>
                   Payment: {paymentLabel(item.paymentMethod)} ·{" "}
                   {item.paymentStatus}
